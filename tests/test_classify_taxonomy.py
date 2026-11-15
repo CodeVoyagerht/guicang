@@ -68,6 +68,20 @@ class ShotTypeTests(ConfigFixture):
         self.assertEqual(shot, "航拍")
         self.assertLess(conf, 0.75)
 
+    def test_dji_prefix_with_only_make_is_also_aerial(self) -> None:
+        # 最容易踩的一格：机型只知道个牌子「DJI」（EXIF 只有 Make、没有 Model），
+        # 文件名 DJI_0101.JPG 明明写着是飞机拍的，以前却按「机型认不出来」判地拍。
+        for rel in ("未整理/2024-05-19/DJI_0101.JPG", "a/DJI_0101.DNG", "a/DJI_0101.MP4"):
+            shot, conf = self._shot(rel, make="DJI", model="")
+            self.assertEqual(shot, "航拍", rel)
+            self.assertLess(conf, 0.75)
+
+    def test_unknown_make_without_dji_naming_still_ground(self) -> None:
+        # 只有牌子、文件名也不带 DJI_ 时，还是按「认不出来」判地拍（0.62，进待定）
+        shot, conf = self._shot("a/0001.JPG", make="DJI", model="")
+        self.assertEqual(shot, "地拍")
+        self.assertLess(conf, 0.75)
+
     def test_high_relative_altitude_means_aerial(self) -> None:
         shot, _conf = self._shot("a/DJI_0001.MP4", alt=92.0, gps_source="srt")
         self.assertEqual(shot, "航拍")

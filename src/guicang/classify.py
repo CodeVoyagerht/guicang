@@ -61,6 +61,13 @@ def _shot_from_filename(name: str) -> tuple[str, float, str, str] | None:
     return None
 
 
+def _is_dji_named(path, rel_path: str) -> bool:
+    """文件名是不是 DJI_ 那套无人机命名。"""
+    if re.search(r"(^|/)dji[_-]?\d", rel_path, re.I):
+        return True
+    return path.stem.lower().startswith("dji_") or path.stem.lower().startswith("dji-")
+
+
 
 def _add(bucket: list[Evidence], rule: str, detail: str, weight: float) -> None:
     bucket.append(Evidence(rule=rule, detail=detail, weight=round(weight, 3)))
@@ -104,6 +111,15 @@ def classify_shot(probe: Probe, rel_path: str) -> tuple[str, float, list[Evidenc
             label, conf, rule, detail = guessed
             _add(evidence, rule, f"{detail}（机型「{camera}」不在已知清单里）", conf)
             return label, conf, evidence
+        # 机型只知道个牌子（DJI）时，「认不出来」不等于「地拍」：DJI_ 命名是从
+        # 无人机里出来的，跟「机型为空」是同一份证据，该走同一档待定分数。
+        if _is_dji_named(probe.path, rel_path):
+            _add(
+                evidence, "path:dji_prefix",
+                f"文件名是 DJI_ 前缀，属无人机素材，但只认到牌子「{camera}」、读不到型号",
+                0.55,
+            )
+            return "航拍", 0.55, evidence
         _add(evidence, "camera:unknown", f"机型 {camera} 不在已知的无人机或地面设备清单里", 0.62)
         return "地拍", 0.62, evidence
 
@@ -113,7 +129,7 @@ def classify_shot(probe: Probe, rel_path: str) -> tuple[str, float, list[Evidenc
         _add(evidence, rule, detail, conf)
         return label, conf, evidence
 
-    if re.search(r"(^|/)dji_\d", rel_path, re.I) or probe.path.stem.lower().startswith("dji_"):
+    if _is_dji_named(probe.path, rel_path):
         # DJI_ 前缀说明是从无人机里拿出来的，但读不到具体机型——够不上自动，
         # 又比「什么都没有」强，所以给航拍一个待定的分数，让人一眼看到。
         _add(evidence, "path:dji_prefix", "文件名是 DJI_ 前缀，属无人机素材，但读不到机型", 0.55)
