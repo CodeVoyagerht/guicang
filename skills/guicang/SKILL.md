@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.11+。核心零第三方依赖；缩略图与网页预览可选 Pillow（`pip install guicang[exif]`），视频预览可选 ffmpeg；云同步支持本机目录或任意 S3 兼容对象存储（内置 SigV4 签名，无需 boto3）。
 metadata:
   author: CodeVoyagerht
-  version: "0.3.1"
+  version: "0.3.2"
   repo: https://github.com/CodeVoyagerht/guicang
 ---
 
@@ -173,6 +173,24 @@ guicang report --csv           # ③ 顺手导一份台账，跟网盘里的文�
 - 支持 S3 协议的网盘/对象存储（OSS、COS、R2、MinIO）用 `[sync.s3]` + `guicang sync`，效果一样。
 - 不要去改网盘里的目录结构——**改结构只会让索引对不上**；要改分类就改 `places.toml` / `activities.toml`
   然后 `scan --force`、`plan`、`apply`，再整体重传这一次变动的部分。
+
+### 天天用的是百度网盘（照这个来）
+
+百度网盘**没有官方 S3 / WebDAV 接口**，所以别去配 `[sync.s3]`，那条路走不通。
+它自家有两个能用的入口，区别很大：
+
+| 入口 | 干什么 | 适合 | 坑 |
+|---|---|---|---|
+| 客户端「上传 / 拖进去」 | 一次性把 `_归藏\` 整个文件夹传上网盘 | **素材备份就该用这个** | 上传速度看会员等级，量大就分批 |
+| 客户端「同步空间」 | 建一个受控本地文件夹，双向实时同步 | 天天要改的那种小目录 | 普通用户每月只有 1GB 同步流量，超级会员才不限 |
+| 设置里的「同步盘」 | 绑一个本地目录单向往上送 | 想让它自动跟着变 | 单向、同样吃同步流量配额 |
+
+结论：**素材这种几十上百 GB 的，走第一种**——`apply` 完把 `_归藏\` 拖进网盘对应目录，
+一次一批（比如一个周期传一次）。同步空间留给台账、`manual.json`、`places.toml` 这类小文件。
+
+对账办法：上传前后各跑一次 `guicang report --csv`（写 `_归藏\..\.guicang\exports\`），
+拿台账里的文件名/大小跟网盘里的文件对一遍；`guicang export --format txt` 还能出一份纯路径清单，
+漏传的文件名直接在网盘搜索框里粘进去查。
 
 ## 工作流 D：判定不对怎么办
 
