@@ -16,13 +16,22 @@
 | 5 | 无人机机型 | `FC\d{4}`、mavic、`mini \d`、`air \d`、phantom、inspire、matrice、neo、御、精灵、悟 | 0.84 | `camera:drone` |
 | 6 | 相对高度 | `alt_kind == "relative"`（DJI 的 `rel_alt`）且 `> 8` 米 | 0.80 | `telemetry:altitude` |
 | 7 | 地面机型 | osmo、pocket、action、ronin、iphone、canon、nikon、sony、fuji、lumix、leica、eos、ilce、a7x、dsc-、x-t | 0.80 | `camera:ground` |
-| 8 | DJI 文件名无机型 | 文件名以 `DJI_数字` 开头但读不到机型号 | 0.55 | `path:dji_prefix` |
-| 9 | 什么都没有 | — | 0.50 | `default` |
+| 8 | 手机文件名 | 文件名以 `IMG_` / `PXL_` / `VID_` / `ScreenShot` / `wx_camera_` / `mmexport` 开头 | 0.80 | `path:phone_prefix` |
+| 9 | 运动相机文件名 | `GOPR` / `GP01` / `GX01` / `HERO` 开头 | 0.80 | `path:action_prefix` |
+| 10 | 相机文件名 | `MVI_` / `MOV_` / `DSC_` / `_DSC` / `DSCN` / `P1xxxxxx` 开头 | 0.78 | `path:camera_prefix` |
+| 11 | DJI 文件名无机型 | 文件名以 `DJI_数字` 开头但读不到机型号 | 0.55 | `path:dji_prefix` |
+| 12 | 什么都没有 | — | 0.50 / 照片 0.45 | `default` |
+
+**为什么要按文件名前缀猜（8–10 号）？** 手机上拍的照片常常没有 EXIF 机型，云端（归云那条路）
+连 EXIF 都读不到。但手机和相机拍出来的默认文件名是固定的：`IMG_`/`PXL_` 是手机、`GOPR` 是
+GoPro、`MVI_`/`DSC_` 是相机——**没有一个是无人机**（无人机用 `DJI_`）。所以这条证据站得住，
+而且它把「明明能判却进了待定」的那批素材救了回来。读得到机型时按机型走，这条只在机型缺失
+或机型不认识时生效。
 
 **为什么路径压过机型？** 天天自己建的目录名是他**当时的判断**（「延时」「航拍」「地拍」），
 比机器认机型更可信。所以路径规则永远在最前面。
 
-**为什么 8 号规则重要？** DJI 素材删过 EXIF 的很多，机型读不出来但文件名还是 `DJI_0001.MP4`。
+**为什么 11 号规则重要？** DJI 素材删过 EXIF 的很多，机型读不出来但文件名还是 `DJI_0001.MP4`。
 按「地拍 0.50」归是错的；按「航拍 0.55」也不会对——所以落在 0.55，进待定，让人来看。
 这就是「诚实」的实现方式：不确定 = 待定，不是 = 猜一个。
 

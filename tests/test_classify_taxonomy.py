@@ -81,6 +81,32 @@ class ShotTypeTests(ConfigFixture):
         self.assertEqual(shot, "地拍")
         self.assertLess(conf, 0.75)
 
+    def test_filename_prefix_tells_ground_devices(self) -> None:
+        # 云端读不到 EXIF 时，文件名前缀是仅剩的那点证据：手机/相机/运动相机都是地拍
+        for name, floor in (
+            ("IMG_8842.JPG", 0.78),
+            ("PXL_20240518_101010.jpg", 0.78),
+            ("DSC_1101.JPG", 0.75),
+            ("MVI_0001.MP4", 0.75),
+            ("GOPR1234.JPG", 0.78),
+        ):
+            shot, conf, evidence = classify.classify_shot(make_probe(name=name, kind="photo"), name)
+            self.assertEqual(shot, "地拍", name)
+            self.assertGreaterEqual(conf, floor, name)
+            self.assertTrue(
+                any(e.rule in ("path:phone_prefix", "path:camera_prefix", "path:action_prefix")
+                    for e in evidence),
+                f"{name} 应该留下前缀证据",
+            )
+
+    def test_dji_prefix_still_wins_over_filename_guessing(self) -> None:
+        # DJI_ 不是手机前缀，别被前缀规则误伤成地拍
+        shot, conf, _evidence = classify.classify_shot(
+            make_probe(name="DJI_0002.MP4"), "开封古城/DJI_0002.MP4"
+        )
+        self.assertEqual(shot, "航拍")
+        self.assertLess(conf, 0.75)
+
 
 class RegionTests(ConfigFixture):
     def test_gps_inside_radius_wins(self) -> None:

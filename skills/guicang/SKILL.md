@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.11+。核心零第三方依赖；缩略图与网页预览可选 Pillow（`pip install guicang[exif]`），视频预览可选 ffmpeg；云同步支持本机目录或任意 S3 兼容对象存储（内置 SigV4 签名，无需 boto3）。
 metadata:
   author: CodeVoyagerht
-  version: "0.3.3"
+  version: "0.3.4"
   repo: https://github.com/CodeVoyagerht/guicang
 ---
 
@@ -224,8 +224,14 @@ guicang scan --force                                      # 改了 places/activi
 | 5 | 机型是无人机（`FC\d{4}`、Mavic/Mini/Air/Phantom/Inspire/Matrice/Neo、御/精灵） | 0.84 |
 | 6 | `.SRT` 里 `rel_alt > 8m` | 0.80 |
 | 7 | 机型是地面设备（Osmo/Pocket/Action/Ronin/iPhone/Canon/SONY…） | 0.80 |
-| 8 | 文件名 `DJI_xxxx` 但读不到机型 → **航拍 0.55（待定）** | 0.55 |
-| 9 | 什么都没有 → 地拍 0.50（待定） | 0.50 |
+| 8 | 文件名是手机命名（`IMG_`/`PXL_`/`VID_`/截图/`mmexport`） | 0.80 |
+| 9 | 文件名是运动相机命名（`GOPR`/`GX01`/`HERO`） | 0.80 |
+| 10 | 文件名是相机命名（`MVI_`/`MOV_`/`DSC_`/`P1000123`） | 0.78 |
+| 11 | 文件名 `DJI_xxxx` 但读不到机型 → **航拍 0.55（待定）** | 0.55 |
+| 12 | 什么都没有 → 地拍 0.50（待定） | 0.50 |
+
+8–10 号是给「读不到机型」用的：手机、相机、运动相机的默认文件名都不是无人机，所以能按前缀
+判地拍；**`DJI_` 不参与前缀猜测**（无人机素材），仍走 11 号进待定。
 
 **区域**：GPS 落在某地点半径内（0.95 起，边缘 0.62）> 路径里出现地点名或别名（0.66+）。都没有 → 待定。
 省 / 市 / 园区区域不是猜的，是 `places.toml` 里地点自带的字段；**配了 `areas` 却认不出是哪一块 → 待定**

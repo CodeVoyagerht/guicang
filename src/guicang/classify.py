@@ -38,6 +38,29 @@ _GROUND_DEVICE_RE = re.compile(
     re.I,
 )
 
+# 读不到机型时，文件名前缀还能说明「这是从什么机器里出来的」。
+# 手机和相机的默认命名都是地面设备，GoPro 也是——无人机不会用这些前缀（DJI 自己的是 DJI_）。
+_PHONE_PREFIX_RE = re.compile(
+    r"^(pxl_|img[-_ ]?e?\d|vid[-_ ]?\d|screen[ _-]?shot|screenshot|wx_camera_|mmexport)",
+    re.I,
+)
+_CAMERA_PREFIX_RE = re.compile(
+    r"^(mvi[-_]?\d|mov[-_]?\d|dsc[fo]?[-_ ]?\d|_dsc\d|dscn\d|p\d{7})", re.I
+)
+_ACTION_PREFIX_RE = re.compile(r"^(gopr|gp\d{2}|gx\d{2}|hero\d)", re.I)
+
+
+def _shot_from_filename(name: str) -> tuple[str, float, str, str] | None:
+    """按文件名前缀猜拍摄类型。够不上「铁证」，但比默认值强得多。"""
+    if _ACTION_PREFIX_RE.match(name):
+        return "地拍", 0.8, "path:action_prefix", "文件名是 GoPro 那类运动相机命名，属地面设备"
+    if _PHONE_PREFIX_RE.match(name):
+        return "地拍", 0.8, "path:phone_prefix", "文件名是手机默认命名（IMG_/PXL_/VID_/截图），一定是地拍"
+    if _CAMERA_PREFIX_RE.match(name):
+        return "地拍", 0.78, "path:camera_prefix", "文件名是相机默认命名（MVI_/DSC_/P1xxxxxx），属地面设备"
+    return None
+
+
 
 def _add(bucket: list[Evidence], rule: str, detail: str, weight: float) -> None:
     bucket.append(Evidence(rule=rule, detail=detail, weight=round(weight, 3)))
@@ -75,8 +98,20 @@ def classify_shot(probe: Probe, rel_path: str) -> tuple[str, float, list[Evidenc
         return "地拍", 0.8, evidence
 
     if camera:
+        # 机型认不出来，但文件名前缀还在——手机的 IMG_、相机的 MVI_/DSC_ 都说明是地面设备。
+        guessed = _shot_from_filename(probe.path.name)
+        if guessed:
+            label, conf, rule, detail = guessed
+            _add(evidence, rule, f"{detail}（机型「{camera}」不在已知清单里）", conf)
+            return label, conf, evidence
         _add(evidence, "camera:unknown", f"机型 {camera} 不在已知的无人机或地面设备清单里", 0.62)
         return "地拍", 0.62, evidence
+
+    guessed = _shot_from_filename(probe.path.name)
+    if guessed:
+        label, conf, rule, detail = guessed
+        _add(evidence, rule, detail, conf)
+        return label, conf, evidence
 
     if re.search(r"(^|/)dji_\d", rel_path, re.I) or probe.path.stem.lower().startswith("dji_"):
         # DJI_ 前缀说明是从无人机里拿出来的，但读不到具体机型——够不上自动，
