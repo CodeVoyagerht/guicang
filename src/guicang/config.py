@@ -209,6 +209,17 @@ def _load_activities(path: Path) -> list[Activity]:
     return items
 
 
+def load_places(path: Path | str) -> list[Place]:
+    """公开入口：读一份 places.toml。别的工具（归云 guiyun）也用它，
+    这样地点清单只有一个真源，两个工具不会各认各的地名。"""
+    return _load_places(Path(path))
+
+
+def load_activities(path: Path | str) -> list[Activity]:
+    """公开入口：读一份 activities.toml。"""
+    return _load_activities(Path(path))
+
+
 def load_config(root: Path | str, *, overrides: dict | None = None) -> Config:
     """读 ``<root>/.guicang/`` 下的三份清单；缺了就返回默认配置。"""
     root_path = Path(root).expanduser().resolve()

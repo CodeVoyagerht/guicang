@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.11+。核心零第三方依赖；缩略图与网页预览可选 Pillow（`pip install guicang[exif]`），视频预览可选 ffmpeg；云同步支持本机目录或任意 S3 兼容对象存储（内置 SigV4 签名，无需 boto3）。
 metadata:
   author: CodeVoyagerht
-  version: "0.3.2"
+  version: "0.3.3"
   repo: https://github.com/CodeVoyagerht/guicang
 ---
 

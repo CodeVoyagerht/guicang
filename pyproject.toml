@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guicang"
-version = "0.3.2"
+version = "0.3.3"
 description = "归藏 —— 摄影师素材分类：区域/活动 → 年 → 备份周期 → 拍摄类型，抖音单独一枝，判定带证据，原件不动"
 readme = "README.md"
 requires-python = ">=3.11"
