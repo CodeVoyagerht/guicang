@@ -1,0 +1,82 @@
+name: 归藏
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: 版本自检
+        run: python --version
+
+      - name: 单元测试（零依赖，不装任何包）
+        run: python -m unittest discover -s tests -t tests -v
+
+      - name: 端到端冒烟（demo → scan → plan → apply → undo）
+        shell: bash
+        env:
+          PYTHONPATH: src
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -e
+          lib="$RUNNER_TEMP/lib"
+          python -m guicang.demo "$lib"
+          python -m guicang.cli --root "$lib" init --force
+          python -m guicang.cli --root "$lib" doctor
+          python -m guicang.cli --root "$lib" scan
+          python -m guicang.cli --root "$lib" report
+          python -m guicang.cli --root "$lib" plan --json > plan.json
+          cat plan.json
+          python -m guicang.cli --root "$lib" apply --yes
+          # 树里有文件，原件也还在
+          count=$(find "$lib/_归藏" -type f | wc -l)
+          echo "落位文件数: $count"
+          test "$count" -eq 8
+          python -m guicang.cli --root "$lib" undo --yes
+          left=$(find "$lib/_归藏" -type f | wc -l)
+          echo "撤回后剩余: $left"
+          test "$left" -eq 0
+
+  lint:
+    name: 技能与预设结构
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: 安装脚本 dry-run 可用
+        run: python skills/guicang/scripts/install.py --dry-run --target dir --dir "$RUNNER_TEMP/skills"
+      - name: 预设 YAML 可解析（含 !!js 自定义标签）
+        run: |
+          python - <<'PY'
+          import sys
+          try:
+              import yaml
+          except ImportError:
+              print("没装 PyYAML，跳过预设解析检查")
+              sys.exit(0)
+          class L(yaml.SafeLoader):
+              pass
+          L.add_multi_constructor('tag:yaml.org,2002:js', lambda l, s, n: None)
+          for path in ("preset/agent.cordis.yml", "preset/preset.yml"):
+              data = yaml.load(open(path, encoding="utf-8"), Loader=L)
+              assert data, path
+              print(f"{path}: ok")
+          PY

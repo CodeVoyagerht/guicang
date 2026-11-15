@@ -1,0 +1,211 @@
+"""判定规则与目录形状：航拍还是地拍、落在哪一枝、待定该不该待定。"""
+
+from __future__ import annotations
+
+import unittest
+from datetime import datetime
+
+import _support  # noqa: F401
+
+from guicang import classify, taxonomy
+from guicang.config import Activity, Place, load_config, write_templates
+from guicang.model import Probe
+
+
+def make_probe(name: str = "file.MP4", **kwargs) -> Probe:
+    from pathlib import Path
+
+    fields = dict(path=Path("素材") / name, kind="video", size=1024, mtime=0.0)
+    fields.update(kwargs)
+    return Probe(**fields)
+
+
+class ConfigFixture(unittest.TestCase):
+    def setUp(self) -> None:
+        self._temp = _support.TempDir()
+        self.root = self._temp.__enter__()
+        write_templates(self.root)
+        self.config = load_config(self.root)
+        self.config.places = [
+            Place(name="郑州奥体中心", aliases=("奥体",), lat=34.7412, lon=113.7210, radius_km=3.0),
+            Place(name="开封古城", aliases=("开封",), lat=34.7978, lon=114.3072, radius_km=6.0),
+        ]
+        self.config.activities = [
+            Activity(name="开封菊花文化节", aliases=("菊花节", "菊花文化节"), editions=None),
+            Activity(name="郑州马拉松", aliases=("郑马",), editions=None),
+        ]
+
+    def tearDown(self) -> None:
+        self._temp.__exit__(None, None, None)
+
+
+class ShotTypeTests(ConfigFixture):
+    def _shot(self, rel: str, **probe_fields) -> tuple[str, float]:
+        item = make_probe(**probe_fields)
+        shot, conf, _evidence = classify.classify_shot(item, rel)
+        return shot, conf
+
+    def test_drone_model_is_aerial(self) -> None:
+        self.assertEqual(self._shot("a/DJI_0003.JPG", make="DJI", model="Mavic 3 Pro")[0], "航拍")
+
+    def test_camera_model_is_ground(self) -> None:
+        self.assertEqual(self._shot("a/IMG_8842.JPG", kind="photo", make="Canon",
+                                    model="Canon EOS R5")[0], "地拍")
+
+    def test_directory_keyword_beats_model(self) -> None:
+        # 人写的目录名比机器型号更可信：地拍目录里放着无人机拍的照片就是地拍
+        shot, _conf = self._shot("2024-09-22 演唱会/地拍/DJI_0001.JPG",
+                                 make="DJI", model="Mavic 3 Pro")
+        self.assertEqual(shot, "地拍")
+
+    def test_delay_and_fpv_keywords(self) -> None:
+        self.assertEqual(self._shot("延时/DJI_0005.MP4")[0], "延时")
+        self.assertEqual(self._shot("穿越机/AVATA.mp4")[0], "FPV")
+
+    def test_dji_prefix_without_model_is_pending_not_ground(self) -> None:
+        # 读不到机型时别急着按地拍算：DJI_ 命名说明是飞机拍的，该落到待定
+        shot, conf = self._shot("开封古城/DJI_0002.MP4")
+        self.assertEqual(shot, "航拍")
+        self.assertLess(conf, 0.75)
+
+    def test_high_relative_altitude_means_aerial(self) -> None:
+        shot, _conf = self._shot("a/DJI_0001.MP4", alt=92.0, gps_source="srt")
+        self.assertEqual(shot, "航拍")
+
+    def test_low_relative_altitude_is_not_aerial(self) -> None:
+        shot, _conf = self._shot("a/VID_0001.MP4", alt=2.0, gps_source="srt")
+        self.assertEqual(shot, "地拍")
+
+    def test_no_information_falls_back_to_ground_with_low_confidence(self) -> None:
+        shot, conf = self._shot("a/VID_0001.MP4")
+        self.assertEqual(shot, "地拍")
+        self.assertLess(conf, 0.75)
+
+
+class RegionTests(ConfigFixture):
+    def test_gps_inside_radius_wins(self) -> None:
+        item = make_probe(lat=34.7412, lon=113.7210, gps_source="exif")
+        region, conf, _ = classify.classify_region(item, "a/B.MP4", self.config)
+        self.assertEqual(region, "郑州奥体中心")
+        self.assertGreater(conf, 0.9)
+
+    def test_path_name_is_used_without_gps(self) -> None:
+        region, conf, _ = classify.classify_region(make_probe(), "2024-05-18 开封/菊花节/a.MP4", self.config)
+        self.assertEqual(region, "开封古城")
+        self.assertLess(conf, 0.95)
+
+    def test_unknown_when_nothing_matches(self) -> None:
+        region, conf, _ = classify.classify_region(make_probe(), "随手拍/a.MP4", self.config)
+        self.assertIsNone(region)
+        self.assertEqual(conf, 0.0)
+
+
+class ActivityTests(ConfigFixture):
+    def test_edition_from_directory(self) -> None:
+        self.assertEqual(classify.extract_edition("第39届菊花节/DJI_0001.MP4"), "第39届")
+
+    def test_chinese_numerals_are_normalised_to_digits(self) -> None:
+        # 目录里写「第十一届」，落到树上一律写成「第11届」，同届不会长出两种写法
+        self.assertEqual(classify.extract_edition("第十一届郑马/a.MP4"), "第11届")
+        self.assertEqual(classify.extract_edition("第二十届/a.MP4"), "第20届")
+
+    def test_edition_falls_back_to_year(self) -> None:
+        activity, edition, conf, _ = classify.classify_activity(
+            make_probe(captured_at=datetime(2025, 3, 30, 8, 0)),
+            "2025-03-30 郑州马拉松/IMG_2002.JPG", self.config,
+        )
+        self.assertIsNotNone(activity)
+        self.assertEqual(activity.name, "郑州马拉松")
+        self.assertEqual(edition, "2025年")
+        self.assertGreater(conf, 0.7)
+
+
+class DecisionTests(ConfigFixture):
+    def _decide(self, rel: str, **probe_fields):
+        return classify.decide(make_probe(**probe_fields), rel, self.config)
+
+    def test_clear_case_is_auto(self) -> None:
+        decision = self._decide(
+            "2024-05-19 开封古城/城墙/IMG_8842.JPG", kind="photo",
+            make="Canon", model="Canon EOS R5", lat=34.7978, lon=114.3072,
+            gps_source="exif", captured_at=datetime(2024, 5, 19, 10, 0),
+        )
+        self.assertEqual(decision.status, "auto")
+        self.assertEqual(decision.region, "开封古城")
+        self.assertEqual(decision.shot_type, "地拍")
+
+    def test_activity_branch_needs_confidence(self) -> None:
+        decision = self._decide(
+            "2025-03-30 郑州马拉松/IMG_2002.JPG", kind="photo",
+            make="FUJIFILM", model="X-T5", lat=34.7465, lon=113.7275,
+            gps_source="exif", captured_at=datetime(2025, 3, 30, 8, 15),
+        )
+        self.assertEqual(decision.branch, "activity")
+        self.assertEqual(decision.activity, "郑州马拉松")
+
+    def test_unknown_region_goes_to_review(self) -> None:
+        decision = self._decide("随手拍/IMG_1001.JPG", kind="photo",
+                                make="Apple", model="iPhone 15 Pro",
+                                captured_at=datetime(2025, 1, 8, 15, 2))
+        self.assertEqual(decision.status, "needs_review")
+        self.assertTrue(any("地点" in note for note in decision.notes))
+
+
+class TaxonomyTests(ConfigFixture):
+    def _decide(self, **fields):
+        return classify.decide(make_probe(**fields), "2024-05-19 开封古城/城墙/a.JPG", self.config)
+
+    def test_region_path_shape(self) -> None:
+        decision = self._decide(kind="photo", make="Canon", model="EOS R5",
+                                lat=34.7978, lon=114.3072, gps_source="exif")
+        when = datetime(2024, 5, 19, 10, 0)
+        self.assertEqual(taxonomy.target_rel(decision, when, self.config),
+                         "区域/开封古城/2024/2024-05/地拍")
+        # 给了文件名，它就是文件的落位路径——不带文件名会把文件叫成「地拍」
+        self.assertEqual(taxonomy.target_rel(decision, when, self.config, "IMG_8842.JPG"),
+                         "区域/开封古城/2024/2024-05/地拍/IMG_8842.JPG")
+
+    def test_activity_path_shape_mentions_the_year_once(self) -> None:
+        decision = self._decide(kind="photo", make="SONY", model="ILCE-7M4",
+                                lat=34.7465, lon=113.7275, gps_source="exif")
+        decision.activity, decision.edition, decision.activity_conf = "郑州马拉松", "第3届", 0.9
+        decision.branch = "activity"
+        rel = taxonomy.target_rel(decision, datetime(2025, 3, 30, 8, 0), self.config)
+        self.assertEqual(rel, "活动/郑州马拉松/2025-第3届/2025-03/地拍")
+
+    def test_pending_bucket_for_unknowns(self) -> None:
+        decision = classify.Decision if hasattr(classify, "Decision") else None
+        from guicang.model import Decision
+
+        pending = Decision(status="needs_review", shot_type="航拍")
+        self.assertEqual(
+            taxonomy.target_rel(pending, datetime(2024, 5, 18, 9, 0), self.config),
+            "待定/2024/2024-05/航拍",
+        )
+
+    def test_time_depth_year_and_day(self) -> None:
+        from pathlib import Path
+
+        from guicang.model import Decision
+
+        decision = Decision(status="auto", shot_type="地拍", region="开封古城", branch="region")
+        when = datetime(2024, 5, 19, 10, 0)
+        year_config = load_config(self.root)
+        year_config.time_depth = "year"
+        day_config = load_config(self.root)
+        day_config.time_depth = "day"
+        self.assertEqual(taxonomy.target_rel(decision, when, year_config), "区域/开封古城/2024/地拍")
+        self.assertEqual(taxonomy.target_rel(decision, when, day_config),
+                         "区域/开封古城/2024/2024-05/2024-05-19/地拍")
+        self.assertIsInstance(Path("x"), Path)
+
+    def test_unknown_time_is_named_not_guessed(self) -> None:
+        from guicang.model import Decision
+
+        decision = Decision(status="auto", shot_type="地拍", region="开封古城", branch="region")
+        self.assertEqual(taxonomy.target_rel(decision, None, self.config),
+                         "区域/开封古城/未知时间/地拍")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# 工具自己的运行产物
+.guicang/
+_归藏/
+
+# 测试/演示临时目录
+tests/_tmp/
+examples/*/media/
+examples/*/out/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
