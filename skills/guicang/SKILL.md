@@ -68,6 +68,8 @@ guicang report --root D:\素材    # ⑤ 看分布与待定原因
 `--root` 写在子命令前后都行（`guicang --root X scan` 与 `guicang scan --root X` 等价）；
 已经在素材根目录或它下面某个子目录里跑时，可以全省略——它会往上找 `.guicang\`。
 
+`guicang` 不在 PATH 时（pip 装完常见），`python -m guicang` 完全等价，别在这上面卡住。
+
 拿到 `report` 之后**别急着 apply**，先看两件事：
 
 - **待定数量**。多到离谱（比如一半）说明 `places.toml` 没填或填错——地名对不上、坐标偏差超过半径，
