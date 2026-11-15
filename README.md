@@ -1,5 +1,7 @@
 # 归藏 guicang
 
+[![CI](https://github.com/CodeVoyagerht/guicang/actions/workflows/ci.yml/badge.svg)](https://github.com/CodeVoyagerht/guicang/actions/workflows/ci.yml)
+
 **素材归位，原件不动。** 把多年攒下的照片和视频，按「区域或活动 → 时间 → 拍摄类型」
 归成一棵看得懂的树，再在本机网页里翻它、筛它、挑它，最后导出一份能直接喂给剪辑软件的清单。
 

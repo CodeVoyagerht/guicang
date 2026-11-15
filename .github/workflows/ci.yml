@@ -15,6 +15,12 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
         python: ["3.11", "3.13"]
+    # 这台工具的输出全是中文：Windows runner 默认按本地代码页写管道，
+    # 测试里的 subprocess 又按 utf-8 解，一对不上就整片红。
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -45,9 +51,10 @@ jobs:
           cat plan.json
           python -m guicang.cli --root "$lib" apply --yes
           # 树里有文件，原件也还在
+          # demo 现在造 10 条素材（8 条区域/活动 + 2 条抖音）
           count=$(find "$lib/_归藏" -type f | wc -l)
           echo "落位文件数: $count"
-          test "$count" -eq 8
+          test "$count" -eq 10
           python -m guicang.cli --root "$lib" undo --yes
           left=$(find "$lib/_归藏" -type f | wc -l)
           echo "撤回后剩余: $left"
