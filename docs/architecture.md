@@ -46,7 +46,9 @@ assets(id TEXT PRIMARY KEY, rel_path UNIQUE, size, mtime, kind,
        captured_at, captured_source, captured_conf,
        shot_type, shot_conf, shot_evidence,
        region, region_conf, region_evidence,
+       province, city, area,                 -- 地点清单带来的上层，认到地点就有
        activity, edition, activity_conf, activity_evidence,
+       alt, alt_kind, gps_source,            -- 高度分海拔/相对起飞点，判航拍只用后者
        target_rel, status, branch, notes, ...)
 collections(id, name, note, created_at, updated_at)
 collection_items(collection_id, asset_id, ordinal)
@@ -56,8 +58,21 @@ kv(key, value)                                                  -- sync 状态�
 
 - `rel_path` 唯一，是原件的身份（相对素材根，正斜杠）。
 - 五段 `*_evidence` 存 JSON 数组，`explain` 直接读它——**不重算**，保证"当时为什么这么判"可回放。
+- `province/city/area` 与 `alt_kind` 是后加的列；`Store.__init__` 会读 `PRAGMA table_info(assets)`
+  缺列就 `ALTER TABLE ADD COLUMN`，**老索引直接升级，不用重建**。
 - `journal` 记每次 `apply` 的 `run_id`，`undo --run` 靠它精确回退，`_prune_empty_dirs` 顺带收空目录。
 - `kv` 存 `sync:<backend>` 的文件指纹（`大小:mtime`），同步靠它判增量。
+
+## 两遍扫描：为什么先判完再算路径
+
+落位路径不是一条素材能单独决定的：省/市要不要出现，取决于**整个库**里有多少个省、多少个市；
+机型要不要分层，取决于**同一天同组**里有没有第二台机器。所以 `scan` 分两遍：
+
+1. 逐文件 `probe_file` / `_from_record` → `decide` → `manual.apply` → `settle_place`，攒成一列；
+2. `build_layout` 一次算出折叠与机型分组，再逐条 `target_rel(..., layout=..., camera=...)` 写库。
+
+代价是全量扫描多占一点内存（一条素材一个 `Decision`），好处是同一批结果永远自洽——
+不会出现"前面几条算的时候还不该分机型、后面几条才分"的半截状态。
 
 ## 增量与重算
 

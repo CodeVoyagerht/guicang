@@ -189,6 +189,8 @@ def parse_tiff(data: bytes) -> dict:
                         # GPSAltitudeRef 是单字节：1 表示海平面以下
                         ref = tiff.value(gps[0x0005]) if 0x0005 in gps else b"\x00"
                         out["alt"] = -altitude if ref in (b"\x01", 1, "1") else altitude
+                        # EXIF 的高度是海拔，不是相对起飞点；判航拍不能用它
+                        out["alt_kind"] = "absolute"
     return out
 
 

@@ -46,6 +46,16 @@ def text_report(config: Config, store: Store) -> str:
     lines.extend(_table("按拍摄类型", Counter(record.shot_type or "-" for record in records), total))
     lines.extend(_table("按状态", Counter(record.status or "-" for record in records), total))
     lines.extend(_table("按区域", Counter(record.region or "未识别" for record in records), total))
+    # 省/市/园区区域是地点清单带来的上层，单独看一眼，方便发现清单漏了哪块
+    provinces = Counter(record.province or "—" for record in records)
+    if any(key != "—" for key in provinces):
+        lines.extend(_table("按省份", provinces, total, wide=14))
+    cities = Counter(f"{record.city or '—'}" for record in records)
+    if any(key != "—" for key in cities):
+        lines.extend(_table("按城市", cities, total, wide=14))
+    areas = Counter(record.area or "—" for record in records)
+    if any(key != "—" for key in areas):
+        lines.extend(_table("按园区区域", areas, total, wide=20))
     lines.extend(_table("按活动", Counter(record.activity or "—" for record in records), total))
 
     years = Counter(str(record.year or "未知") for record in records)

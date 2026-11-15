@@ -25,16 +25,30 @@ TIME_DEPTHS = ("year", "month", "day")
 
 @dataclass(frozen=True)
 class Place:
-    """一个可反复去的地点。坐标是圆心，``radius_km`` 是吸附半径。"""
+    """一个可反复去的拍摄地点。
+
+    层级链是「省 / 市 / 地点 / 园区里的区域」，但前两层会按实际素材折叠：
+    库里只有一个省、一个市的时候，目录直接从地点开始。
+    """
 
     name: str
     aliases: tuple[str, ...] = ()
     lat: float | None = None
     lon: float | None = None
     radius_km: float = 3.0
+    province: str = ""
+    city: str = ""
+    areas: tuple[str, ...] = ()      # 园区里的区域，"水世界|水上乐园" 这种写法第二段起是别名
 
     def names(self) -> tuple[str, ...]:
         return (self.name, *self.aliases)
+
+    def area_aliases(self, entry: str) -> tuple[str, ...]:
+        """``水世界|水上乐园`` → ``("水世界", "水上乐园")``，第一段是正式名。"""
+        return tuple(part.strip() for part in entry.split("|") if part.strip())
+
+    def area_names(self) -> tuple[str, ...]:
+        return tuple(self.area_aliases(entry)[0] for entry in self.areas if self.area_aliases(entry))
 
     def mentions(self, text: str) -> bool:
         """路径或文件名里提到它了吗。"""
@@ -86,9 +100,10 @@ class SyncConfig:
 class Config:
     root: Path
     tree: str = DEFAULT_TREE
-    time_depth: str = "month"
+    time_depth: str = "day"
     region_enabled: bool = True
     activity_enabled: bool = True
+    camera_layer: bool = True       # 同一处同一天有两个以上机型时，多分一层机型
     places: list[Place] = field(default_factory=list)
     activities: list[Activity] = field(default_factory=list)
     web_host: str = "127.0.0.1"
@@ -168,6 +183,9 @@ def _load_places(path: Path) -> list[Place]:
                 lat=_as_float(item.get("lat")),
                 lon=_as_float(item.get("lon")),
                 radius_km=_as_float(item.get("radius_km")) or 3.0,
+                province=_as_str(item.get("province")).strip(),
+                city=_as_str(item.get("city")).strip(),
+                areas=_str_list(item.get("areas")),
             )
         )
     return places
@@ -205,14 +223,15 @@ def load_config(root: Path | str, *, overrides: dict | None = None) -> Config:
 
     library = settings.get("library", {}) or {}
     time_block = settings.get("time", {}) or {}
+    layout_block = settings.get("layout", {}) or {}
     region_block = settings.get("region", {}) or {}
     activity_block = settings.get("activity", {}) or {}
     web_block = settings.get("web", {}) or {}
     sync_block = settings.get("sync", {}) or {}
 
-    depth = _as_str(time_block.get("depth"), "month").strip().lower()
+    depth = _as_str(time_block.get("depth"), "day").strip().lower()
     if depth not in TIME_DEPTHS:
-        depth = "month"
+        depth = "day"
 
     sync_local = sync_block.get("local", {}) or {}
     sync_s3 = sync_block.get("s3", {}) or {}
@@ -233,6 +252,7 @@ def load_config(root: Path | str, *, overrides: dict | None = None) -> Config:
         time_depth=depth,
         region_enabled=bool(region_block.get("enabled", True)),
         activity_enabled=bool(activity_block.get("enabled", True)),
+        camera_layer=bool(layout_block.get("camera", True)),
         places=_load_places(directory / PLACES_FILE),
         activities=_load_activities(directory / ACTIVITIES_FILE),
         web_host=_as_str(web_block.get("host"), "127.0.0.1"),
@@ -257,14 +277,19 @@ CONFIG_TEMPLATE = """\
 tree = "_归藏"
 
 [time]
-# 时间粒度：year | month | day
-depth = "month"
+# 时间粒度：day = 每次拍摄一层（2024-05-18）| month | year
+depth = "day"
 
 [region]
 enabled = true
 
 [activity]
 enabled = true
+
+[layout]
+# 同一处、同一天、同一拍摄类型里出现两个以上机型时，多分一层机型目录。
+# 只有一种机型就不分，不在每条路径上都挂一个机型名。
+camera = true
 
 [web]
 # guicang serve 监听地址。想用手机看就把 host 改成 0.0.0.0 并设 token。
@@ -290,19 +315,29 @@ prefix = "guicang/"
 
 PLACES_TEMPLATE = """\
 # 地点清单。坐标是圆心，radius_km 是 GPS 吸附半径。
-# 只写你常去的点，越具体越好——「郑州奥体中心」比「郑州」有用得多。
-# 区域主枝下就是这些名字，不再套城市层级。
+#
+# 层级：省 / 市 / 地点 / 园区里的区域 / 每次拍摄 / 拍摄类型
+# 省和市会自动折叠——库里只有一个省、一个市的时候，目录直接从地点开始，
+# 不会出现「河南/郑州/…」这种一层只放一个名字的空架子。
+#
+# 园区区域（泡泡塘里的水世界、露营区那种）写在 areas 里，用 | 隔开别名，
+# 第一段是落进目录的名字。某个地点不分园区区域时，areas 留空就行。
 
 [[place]]
-name = "郑州奥体中心"
-aliases = ["奥体", "郑州奥体"]
+name = "泡泡塘森林溪谷"
+aliases = ["泡泡塘", "森林溪谷"]
+province = "河南"
+city = "郑州"
 lat = 34.7412
 lon = 113.7210
 radius_km = 3.0
+areas = ["水世界|水上乐园", "露营区", "花海"]
 
 [[place]]
 name = "开封古城"
 aliases = ["开封", "清明上河园", "鼓楼"]
+province = "河南"
+city = "开封"
 lat = 34.7978
 lon = 114.3072
 radius_km = 6.0
@@ -310,6 +345,8 @@ radius_km = 6.0
 [[place]]
 name = "洛阳老君山"
 aliases = ["老君山", "栾川"]
+province = "河南"
+city = "洛阳"
 lat = 33.7396
 lon = 111.6411
 radius_km = 8.0

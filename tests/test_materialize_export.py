@@ -60,7 +60,7 @@ class MaterializeTests(unittest.TestCase):
         self.assertGreater(dirs, 0)
         self.assertEqual([p for p in self.config.tree_root.rglob("*") if p.is_dir()], [])
         # 原件全在
-        self.assertEqual(len(list(self.root.rglob("*.MP4"))), 3)
+        self.assertEqual(len(list(self.root.rglob("*.MP4"))), 4)
 
     def test_copy_mode_copies_and_move_mode_moves(self) -> None:
         with store_mod.Store(self.config.index_path) as store:

@@ -247,11 +247,11 @@ def cmd_review(args) -> int:
             clear_manual(config.root, rel)
             print(f"已清掉 {rel} 的人工判定")
         else:
-            if not any([args.shot, args.region, args.activity, args.edition]):
-                print("至少要给一个 --shot / --region / --activity / --edition")
+            if not any([args.shot, args.region, args.area, args.activity, args.edition]):
+                print("至少要给一个 --shot / --region / --area / --activity / --edition")
                 return 1
             set_manual(config.root, rel, shot_type=args.shot, region=args.region,
-                       activity=args.activity, edition=args.edition)
+                       area=args.area, activity=args.activity, edition=args.edition)
             print(f"已记下 {rel} 的人工判定，下次 scan 生效：")
             for key, value in (load_manual(config.root).get(rel) or {}).items():
                 print(f"  {key} = {value}")
@@ -271,8 +271,10 @@ def cmd_review(args) -> int:
     print(f"待定 {total} 个（列出前 {len(rows)} 个）：\n")
     for record in rows:
         print(f"  [{record.id}] {record.rel_path}")
+        where = "/".join(part for part in (record.province, record.city, record.region,
+                                           record.area) if part) or "未识别"
         print(f"      拍摄类型 {record.shot_type or '?'}（{record.shot_conf or 0:.2f}）"
-              f" · 区域 {record.region or '未识别'}（{record.region_conf or 0:.2f}）")
+              f" · 区域 {where}（{record.region_conf or 0:.2f}）")
         if record.camera:
             print(f"      机型 {record.camera} · GPS {record.gps_source or '无'}")
         if record.notes:
@@ -280,6 +282,8 @@ def cmd_review(args) -> int:
         hint = [f'--set "{record.rel_path}"']
         hint.append(f"--shot {record.shot_type}" if record.shot_type else "--shot <航拍/地拍/延时/FPV/其他>")
         hint.append(f'--region "{record.region}"' if record.region else '--region "<地点名>"')
+        if record.region and not record.area:
+            hint.append('--area "<园区区域>"')
         print("      钉住：guicang review " + " ".join(hint))
     print("\n也可以不改判定、直接把待定素材单独整理：guicang plan --only-review")
     return 0
@@ -297,7 +301,9 @@ def cmd_explain(args) -> int:
     print(f"  时间      {record.captured_at or '未知'}（来源 {record.captured_source or '无'}，"
           f"把握 {record.captured_conf or 0:.2f}）")
     print(f"  拍摄类型  {record.shot_type or '?'}（{record.shot_conf or 0:.2f}）")
-    print(f"  区域      {record.region or '未识别'}（{record.region_conf or 0:.2f}）")
+    # 一条素材在地点上的完整身份：省 → 市 → 地点 → 园区区域
+    chain = " → ".join(part for part in (record.province, record.city, record.region, record.area) if part)
+    print(f"  区域      {chain or '未识别'}（{record.region_conf or 0:.2f}）")
     if record.activity:
         print(f"  活动      {record.activity} {record.edition or ''}（{record.activity_conf or 0:.2f}）")
     print(f"  分支      {record.branch} · 状态 {record.status}")
@@ -565,6 +571,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", default="", metavar="相对路径", help="给某个文件钉判定")
     p.add_argument("--shot", choices=SHOT_TYPES, help="拍摄类型")
     p.add_argument("--region", help="区域（地点名）")
+    p.add_argument("--area", help="园区里的区域名（places.toml 的 areas 里列过的）")
     p.add_argument("--activity", help="活动名")
     p.add_argument("--edition", help="届次，如 2026-第3届")
     p.add_argument("--clear", action="store_true", help="清掉这条的人工判定")

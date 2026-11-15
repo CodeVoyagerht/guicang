@@ -209,7 +209,12 @@ def write_srt(path: Path, when: datetime, *, lat: float, lon: float, rel_alt: fl
 # ── 素材库 ──────────────────────────────────────────────────────────────────
 
 def build(target: Path | str, *, clean: bool = False) -> Path:
-    """铺一个覆盖各种判定的素材库。返回根目录。"""
+    """铺一个覆盖各种判定的素材库。返回根目录。
+
+    这个例子故意只有**一个省**（河南），所以「河南」那一层会被折叠掉；
+    有两个市（郑州、开封），所以市这一层会留着——正好演示「一层只放一个
+    名字的层级不列」。
+    """
     root = Path(target).expanduser().resolve()
     if clean and root.exists():
         import shutil
@@ -217,53 +222,49 @@ def build(target: Path | str, *, clean: bool = False) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     write_templates(root)
 
-    # 1. 有 SRT 遥测的航拍：DJI_ 前缀 + 相对高度 92 米 + 坐标落在开封古城
-    clip = write_video(root / "2024-05-18 开封古城" / "第39届菊花文化节" / "DJI_0001.MP4",
-                       datetime(2024, 5, 18, 9, 12, 33))
+    park = root / "2024-05-18 泡泡塘森林溪谷"
+
+    # 1. 有 SRT 遥测的航拍：相对高度 92 米，坐标就在园区里
+    clip = write_video(park / "水世界" / "DJI_0001.MP4", datetime(2024, 5, 18, 9, 12, 33))
     write_srt(clip.with_suffix(".SRT"), datetime(2024, 5, 18, 9, 12, 33),
-              lat=34.7968, lon=114.3075, rel_alt=92.0)
+              lat=34.7413, lon=113.7208, rel_alt=92.0)
 
-    # 2. 同目录、没 SRT、机型只有文件名：这条应该是「待定」，正好演示 review
-    write_video(root / "2024-05-18 开封古城" / "第39届菊花文化节" / "DJI_0002.MP4",
-                datetime(2024, 5, 18, 16, 40, 12))
+    # 2. 同目录、没 SRT、只有 DJI_ 前缀：判定只有 0.55 的把握 → 待定
+    write_video(park / "水世界" / "DJI_0002.MP4", datetime(2024, 5, 18, 16, 40, 12))
 
-    # 3. 相机地拍，坐标就在古城里
-    write_photo(root / "2024-05-19 开封古城" / "城墙" / "IMG_8842.JPG",
-                datetime(2024, 5, 19, 18, 30, 5),
-                make="Canon", model="Canon EOS R5",
-                gps=(34.7971, 114.3081, 96.0))
+    # 3+4. 同一天、同一片露营区、两台不同相机地拍 → 这一组才分机型目录
+    camp = root / "2024-05-19 泡泡塘森林溪谷" / "露营区"
+    write_photo(camp / "IMG_8842.JPG", datetime(2024, 5, 19, 18, 30, 5),
+                make="Canon", model="Canon EOS R5", gps=(34.7411, 113.7205, 96.0))
+    write_photo(camp / "DSC_8843.JPG", datetime(2024, 5, 19, 18, 42, 11),
+                make="SONY", model="ILCE-7M4", gps=(34.7410, 113.7203, 95.0))
 
-    # 4. 相机地拍，坐标落在奥体中心——靠 GPS 而不是目录名认区域
-    write_photo(root / "2024-09-22 演唱会" / "DSC_1101.JPG",
-                datetime(2024, 9, 22, 20, 5, 41),
-                make="SONY", model="ILCE-7M4",
-                gps=(34.7412, 113.7209, 120.0))
+    # 5. 延时：目录名写着延时，只有一台机器 → 不再分机型
+    write_video(root / "2024-06-01 泡泡塘森林溪谷" / "花海" / "延时" / "DJI_0005.MP4",
+                datetime(2024, 6, 1, 19, 40, 0), seconds=25,
+                location=(34.7414, 113.7212, 88.0))
 
-    # 5. 老君山：只有路径地名和机型（Mavic 3），没有 GPS → 航拍 + 靠路径认区域
-    write_photo(root / "2023-11-12 洛阳老君山" / "无人机" / "DJI_0003.JPG",
-                datetime(2023, 11, 12, 7, 20, 3),
-                make="DJI", model="Mavic 3 Pro", size=(5280, 3956))
+    # 6. 活动 + 届次：目录名里带「第39届」，届次段拼进年份
+    fair = root / "2024-07-10 开封古城" / "第39届菊花文化节" / "DJI_0003.MP4"
+    write_video(fair, datetime(2024, 7, 10, 10, 5, 0), location=(34.7968, 114.3075, 70.0))
+    write_srt(fair.with_suffix(".SRT"), datetime(2024, 7, 10, 10, 5, 0),
+              lat=34.7968, lon=114.3075, rel_alt=60.0)
 
-    # 6. 手机随手拍：没有坐标、没有机型线索 → 区域识别不出，进「待定」
+    # 7. 手机随手拍：没有坐标、没有机型线索 → 区域识别不出，进「待定」
     write_photo(root / "2025-01-08 随手拍" / "IMG_1001.JPG",
                 datetime(2025, 1, 8, 15, 2, 0),
                 make="Apple", model="iPhone 15 Pro", size=(4032, 3024))
 
-    # 7. 延时：目录名就写着延时，且文件名是 DJI 无人机
-    write_video(root / "2024-08-05 郑州奥体中心" / "延时" / "DJI_0005.MP4",
-                datetime(2024, 8, 5, 19, 40, 0), seconds=25,
-                location=(34.7412, 113.7210, 88.0))
-
-    # 8. 活动届次认不出来（没有「第N届」）→ 按拍摄年份当届次
-    write_photo(root / "2025-03-30 郑州马拉松" / "IMG_2002.JPG",
-                datetime(2025, 3, 30, 8, 15, 22),
+    # 8. 活动届次没写「第N届」 → 按拍摄年份当届次
+    write_photo(root / "2025-03-16 郑州马拉松" / "IMG_2002.JPG",
+                datetime(2025, 3, 16, 8, 15, 22),
                 make="FUJIFILM", model="X-T5",
                 gps=(34.7465, 113.7275, 95.0))
 
     print(f"示例素材库已建好：{root}")
     print(f"  照片 {_count(root, '*.JPG')} 个（真 EXIF：时间/机型/GPS）")
     print(f"  视频 {_count(root, '*.MP4')} 个（真拍摄时间，画面是占位字节）")
-    print(f"  遥测 {_count(root, '*.SRT')} 个（DJI 相对高度 92 米）")
+    print(f"  遥测 {_count(root, '*.SRT')} 个（DJI 相对高度）")
     print(f"  配置在 {root / CONFIG_DIR}")
     print("\n下一步：")
     print(f"  guicang --root \"{root}\" scan")

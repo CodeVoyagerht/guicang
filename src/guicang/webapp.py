@@ -89,6 +89,10 @@ def _record_json(record: Record) -> dict:
         "shot_conf": record.shot_conf,
         "region": record.region,
         "region_conf": record.region_conf,
+        # 省/市/园区区域：卡片上要显示「郑州/泡泡塘森林溪谷/水世界」这种完整身份
+        "province": record.province,
+        "city": record.city,
+        "area": record.area,
         "activity": record.activity,
         "edition": record.edition,
         "activity_conf": record.activity_conf,
@@ -307,6 +311,7 @@ class Handler(BaseHTTPRequestHandler):
         year = query.get("year")
         return Filters(
             region=query.get("region") or None,
+            area=query.get("area") or None,
             activity=query.get("activity") or None,
             shot_type=query.get("shot") or None,
             year=int(year) if year and year.isdigit() else None,

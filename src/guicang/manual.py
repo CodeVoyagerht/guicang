@@ -21,9 +21,10 @@ MANUAL_FILE = "manual.json"
 
 SHOT_KEY = "shot_type"
 REGION_KEY = "region"
+AREA_KEY = "area"
 ACTIVITY_KEY = "activity"
 EDITION_KEY = "edition"
-_KEYS = (SHOT_KEY, REGION_KEY, ACTIVITY_KEY, EDITION_KEY)
+_KEYS = (SHOT_KEY, REGION_KEY, AREA_KEY, ACTIVITY_KEY, EDITION_KEY)
 
 MANUAL_WEIGHT = 1.0
 
@@ -109,6 +110,13 @@ def apply(decision: Decision, entry: dict | None, when=None) -> Decision:
         decision.region = entry[REGION_KEY]
         decision.region_conf = MANUAL_WEIGHT
         decision.region_evidence = [Evidence("manual", f"人工指定区域：{entry[REGION_KEY]}", MANUAL_WEIGHT)]
+
+    if entry.get(AREA_KEY):
+        decision.area = entry[AREA_KEY]
+        decision.region_evidence = [
+            *decision.region_evidence,
+            Evidence("manual", f"人工指定园区区域：{entry[AREA_KEY]}", MANUAL_WEIGHT),
+        ]
 
     if entry.get(ACTIVITY_KEY):
         decision.activity = entry[ACTIVITY_KEY]

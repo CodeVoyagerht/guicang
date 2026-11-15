@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from . import geo
-from .config import Activity, Config
+from .config import Activity, Config, Place
 from .model import AUTO_THRESHOLD, Decision, Evidence, Probe
 
 SHOT_TYPES = ("航拍", "地拍", "延时", "FPV", "其他")
@@ -64,7 +64,7 @@ def classify_shot(probe: Probe, rel_path: str) -> tuple[str, float, list[Evidenc
         _add(evidence, "camera:drone", f"机型 {camera} 是无人机", 0.84)
         return "航拍", 0.84, evidence
 
-    if probe.alt is not None and probe.gps_source == "srt" and probe.alt > 8:
+    if probe.alt is not None and probe.alt_kind == "relative" and probe.alt > 8:
         _add(evidence, "telemetry:altitude", f"遥测相对高度 {probe.alt:.1f}m，超过 8m", 0.8)
         return "航拍", 0.8, evidence
 
@@ -90,8 +90,10 @@ def classify_shot(probe: Probe, rel_path: str) -> tuple[str, float, list[Evidenc
     return "地拍", 0.45, evidence
 
 
-def classify_region(probe: Probe, rel_path: str, config: Config) -> tuple[str | None, float, list[Evidence]]:
-    """区域只有一层：具体地点。GPS 优先，路径里的地名其次。"""
+def classify_region(
+    probe: Probe, rel_path: str, config: Config
+) -> tuple[Place | None, float, list[Evidence]]:
+    """认出是哪个地点。GPS 优先，路径里的地名其次。"""
     evidence: list[Evidence] = []
     if not config.region_enabled:
         return None, 0.0, evidence
@@ -103,7 +105,7 @@ def classify_region(probe: Probe, rel_path: str, config: Config) -> tuple[str | 
             f"坐标 ({probe.lat:.5f}, {probe.lon:.5f}) 距「{hit.place.name}」{hit.distance_km:.2f}km",
             hit.confidence,
         )
-        return hit.place.name, hit.confidence, evidence
+        return hit.place, hit.confidence, evidence
 
     if probe.lat is not None and probe.lon is not None:
         suggestions = geo.suggest_places(config.places, probe.lat, probe.lon)
@@ -118,9 +120,37 @@ def classify_region(probe: Probe, rel_path: str, config: Config) -> tuple[str | 
     path_hit = geo.place_in_text(config.places, rel_path)
     if path_hit:
         _add(evidence, "path:place", f"相对路径里出现「{path_hit.place.name}」", path_hit.confidence)
-        return path_hit.place.name, path_hit.confidence, evidence
+        return path_hit.place, path_hit.confidence, evidence
 
     return None, 0.0, evidence
+
+
+def classify_area(
+    place: Place | None, rel_path: str
+) -> tuple[str, float, list[Evidence]]:
+    """园区里的区域（水世界、露营区这种）。名字只在路径里找——EXIF 里没有这一层。
+
+    一个地点没在配置里列区域，就不分这一层；列了却没对上，交给 decide() 判待定。
+    """
+    evidence: list[Evidence] = []
+    if place is None or not place.areas:
+        return "", 1.0, evidence
+
+    lowered = rel_path.lower()
+    best: tuple[int, str, str] | None = None
+    for entry in place.areas:
+        aliases = place.area_aliases(entry)
+        for alias in aliases:
+            needle = alias.lower()
+            if needle and needle in lowered and (best is None or len(alias) > best[0]):
+                best = (len(alias), aliases[0], alias)
+
+    if best is None:
+        return "", 0.0, evidence
+
+    _, canonical, matched = best
+    _add(evidence, "path:area", f"相对路径里出现「{matched}」，归到园区区域「{canonical}」", 0.9)
+    return canonical, 0.9, evidence
 
 
 _EDITION_RE = re.compile(r"第\s*([0-9]{1,3}|[一二三四五六七八九十]{1,3})\s*届")
@@ -192,16 +222,20 @@ def classify_activity(
 def decide(probe: Probe, rel_path: str, config: Config) -> Decision:
     """一次分类的完整结论。三条证据链各自独立，互不污染置信度。"""
     shot_type, shot_conf, shot_evidence = classify_shot(probe, rel_path)
-    region, region_conf, region_evidence = classify_region(probe, rel_path, config)
+    place, region_conf, region_evidence = classify_region(probe, rel_path, config)
+    area, _, area_evidence = classify_area(place, rel_path)
     activity, edition, activity_conf, activity_evidence = classify_activity(probe, rel_path, config)
 
     decision = Decision(
         shot_type=shot_type,
         shot_conf=shot_conf,
         shot_evidence=shot_evidence,
-        region=region,
+        region=place.name if place else None,
         region_conf=region_conf,
-        region_evidence=region_evidence,
+        region_evidence=[*region_evidence, *area_evidence],
+        province=place.province if place else "",
+        city=place.city if place else "",
+        area=area,
         activity=activity.name if activity else None,
         edition=edition if activity else None,
         activity_conf=activity_conf,
@@ -209,9 +243,13 @@ def decide(probe: Probe, rel_path: str, config: Config) -> Decision:
     )
     decision.branch = "activity" if activity and activity_conf >= ACTIVITY_THRESHOLD else "region"
 
-    if decision.branch == "region" and region is None:
+    if decision.branch == "region" and decision.region is None:
         decision.status = "needs_review"
-        decision.notes.append("地点没认出来：没有坐标，路径里也没出现清单上的地名")
+        outside = next((item for item in region_evidence if item.rule == "gps:outside"), None)
+        decision.notes.append(
+            f"地点没认出来：{outside.detail}，路径里也没出现清单上的地名"
+            if outside else "地点没认出来：没有坐标，路径里也没出现清单上的地名"
+        )
     elif shot_conf < AUTO_THRESHOLD:
         decision.status = "needs_review"
         decision.notes.append(f"拍摄类型只有 {shot_conf:.2f} 的把握")
@@ -221,8 +259,47 @@ def decide(probe: Probe, rel_path: str, config: Config) -> Decision:
     elif decision.branch == "region" and region_conf < AUTO_THRESHOLD:
         decision.status = "needs_review"
         decision.notes.append(f"地点只有 {region_conf:.2f} 的把握")
+    elif decision.branch == "region" and place and place.areas and not decision.area:
+        decision.status = "needs_review"
+        names = "、".join(place.area_names())
+        decision.notes.append(
+            f"「{place.name}」在配置里分了园区区域（{names}），这条素材对不上是哪一块："
+            f"把区域名写进路径，或者 review --set 钉一次"
+        )
     else:
         decision.status = "auto"
+    return decision
+
+
+def settle_place(decision: Decision, config: Config) -> Decision:
+    """人工改过地点之后补上省/市，并检查园区区域还缺不缺。
+
+    省和市不是从素材里认出来的，是 places.toml 里那个地点的属性；人工把一条素材
+    钉到「泡泡塘森林溪谷」以后，它自然就该进河南/郑州。这条规则放在 decide 之后、
+    落位之前跑，否则人工钉的地点就少了上面两层。
+    """
+    if decision.branch != "region" or not decision.region:
+        return decision
+    place = None
+    for candidate in config.places:
+        if candidate.name == decision.region or decision.region in candidate.aliases:
+            place = candidate
+            break
+    if place is None:
+        return decision
+
+    decision.province = place.province
+    decision.city = place.city
+    if place.areas and not decision.area:
+        names = "、".join(place.area_names())
+        note = (
+            f"「{place.name}」在配置里分了园区区域（{names}），这条素材对不上是哪一块："
+            f"把区域名写进路径，或者 review --set 钉一次"
+        )
+        if decision.status != "needs_review":
+            decision.status = "needs_review"
+        if note not in decision.notes:
+            decision.notes.append(note)
     return decision
 
 

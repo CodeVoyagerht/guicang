@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guicang"
-version = "0.1.0"
-description = "归藏 —— 摄影师素材分类：区域 / 活动 / 时间 / 拍摄类型，判定带证据，原件不动"
+version = "0.2.0"
+description = "归藏 —— 摄影师素材分类：省/市/地点/园区区域 → 这次拍摄 → 拍摄类型，判定带证据，原件不动"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

@@ -123,7 +123,10 @@ def probe_file(path: Path | str, *, root: Path | str | None = None) -> Probe:
         probe.gps_source = str(meta.get("gps_source") or ("exif" if kind == "photo" else "quicktime"))
         if isinstance(meta.get("alt"), float):
             probe.alt = meta["alt"]
-            if meta.get("alt_kind") == "relative" or probe.gps_source == "srt":
+            # DJI 的 rel_alt 是相对起飞点的高度，8 米就足以说明是航拍；
+            # EXIF 里的 GPSAltitude 是海拔，郑州地面也有 100 米，拿来判航拍会全错。
+            probe.alt_kind = str(meta.get("alt_kind") or "absolute")
+            if probe.alt_kind == "relative":
                 probe.notes.append(f"高度为相对起飞点 {probe.alt:.1f}m")
 
     captured = meta.get("datetime")

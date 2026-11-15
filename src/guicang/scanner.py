@@ -12,11 +12,12 @@ from datetime import datetime
 from pathlib import Path
 
 from . import manual, probe
-from .classify import decide
+from .classify import decide, settle_place
 from .config import Config
+from .model import Decision
 from .paths import kind_of, rel_posix
 from .store import Record, Store, evidence_json
-from .taxonomy import target_rel
+from .taxonomy import Layout, build_layout, target_rel
 
 # 这些目录里有几千个缓存文件，扫它们毫无意义
 SKIP_DIR_NAMES = {"$RECYCLE.BIN", "System Volume Information", ".git", ".svn", "node_modules"}
@@ -34,12 +35,21 @@ class ScanReport:
     skipped: int = 0
     needs_review: int = 0
     errors: list[str] = field(default_factory=list)
+    layout: Layout | None = None
 
     def summary(self) -> str:
+        shape = ""
+        if self.layout is not None:
+            dropped = self.layout.collapsed
+            if dropped:
+                shape = f"；折叠掉的层级：{'、'.join(dropped)}"
+            if self.layout.camera_groups:
+                shape += f"；分机型的日期 {len(self.layout.camera_groups)} 组"
         return (
             f"扫到 {self.seen} 个文件：新增 {self.added}，更新 {self.updated}，"
             f"未变 {self.unchanged}，目录里已不存在 {self.removed}；"
-            f"挂靠旁车 {self.sidecars} 个，待定 {self.needs_review} 条，失败 {len(self.errors)} 条"
+            f"挂靠旁车 {self.sidecars} 个，待定 {self.needs_review} 条，"
+            f"失败 {len(self.errors)} 条{shape}"
         )
 
 
@@ -96,6 +106,7 @@ def _apply_sidecar_facts(probe_obj, sidecar_facts: dict) -> None:
         probe_obj.notes.append("坐标来自 DJI 遥测")
     if isinstance(sidecar_facts.get("alt"), float) and sidecar_facts.get("alt_kind") == "relative":
         probe_obj.alt = sidecar_facts["alt"]
+        probe_obj.alt_kind = "relative"
     if probe_obj.captured_at is None and sidecar_facts.get("datetime"):
         probe_obj.captured_at = sidecar_facts["datetime"]
         probe_obj.captured_source = "srt"
@@ -125,6 +136,7 @@ def _from_record(record: Record) -> probe.Probe:
         lat=record.lat,
         lon=record.lon,
         alt=record.alt,
+        alt_kind=record.alt_kind or "",
         gps_source=record.gps_source or "",
         make=record.make or "",
         model=record.model or "",
@@ -140,6 +152,9 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
 
     ``force`` 让未变的文件也重读元数据。未变的文件不重读，但仍然会**重新判一遍**：
     人工钉住、地点清单、活动别名改了以后，没必要让用户再去记 ``--force``。
+
+    分两遍：第一遍把文件判完，第二遍才落位——因为「省/市要不要列」「机型要不要
+    分一层」是整库决定的，得先看完所有素材才知道，不能边走边写路径。
     """
     root = Path(root).expanduser().resolve()
     report = ScanReport()
@@ -148,6 +163,8 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
     manual_map = manual.load_manual(root)
     report.seen = len(media)
     existing: set[str] = set()
+    entries: list[tuple[Path, str, probe.Probe, Decision, bool]] = []
+    layout_items: list[tuple[Decision, object, str]] = []
 
     for path in media:
         key = f"{path.parent}|{path.stem}".lower()
@@ -183,7 +200,18 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
         rel_parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
         decision = decide(item, rel_parent, config)
         decision = manual.apply(decision, manual_map.get(rel), item.captured_at)
-        target = target_rel(decision, item.captured_at, config, path.name)
+        decision = settle_place(decision, config)
+        entries.append((path, rel, item, decision, prior is not None))
+        layout_items.append((decision, item.captured_at, item.camera))
+
+    layout = build_layout(layout_items, config)
+
+    for path, rel, item, decision, had_prior in entries:
+        prior = store.get_asset(rel)
+        target = target_rel(
+            decision, item.captured_at, config, path.name,
+            layout=layout, camera=item.camera,
+        )
 
         payload = {
             "rel_path": rel,
@@ -197,6 +225,7 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
             "lat": item.lat,
             "lon": item.lon,
             "alt": item.alt,
+            "alt_kind": item.alt_kind,
             "gps_source": item.gps_source,
             "make": item.make,
             "model": item.model,
@@ -210,6 +239,9 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
             "region": decision.region,
             "region_conf": decision.region_conf,
             "region_evidence": evidence_json(decision.region_evidence),
+            "province": decision.province,
+            "city": decision.city,
+            "area": decision.area,
             "activity": decision.activity,
             "edition": decision.edition,
             "activity_conf": decision.activity_conf,
@@ -225,9 +257,9 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
             report.errors.append(f"{rel}: 写入索引失败 {error}")
             continue
 
-        if prior is None:
+        if not had_prior:
             report.added += 1
-        elif not reused or (prior.target_rel, prior.status) != (target, decision.status):
+        elif (prior.target_rel, prior.status) != (target, decision.status):
             report.updated += 1
         if decision.status == "needs_review":
             report.needs_review += 1
@@ -235,4 +267,5 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
             progress(rel, decision)
 
     report.removed = store.delete_missing(existing)
+    report.layout = layout
     return report

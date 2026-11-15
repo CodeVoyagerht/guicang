@@ -86,12 +86,13 @@ class RegionTests(ConfigFixture):
     def test_gps_inside_radius_wins(self) -> None:
         item = make_probe(lat=34.7412, lon=113.7210, gps_source="exif")
         region, conf, _ = classify.classify_region(item, "a/B.MP4", self.config)
-        self.assertEqual(region, "郑州奥体中心")
+        # 现在返回的是 Place 而不是地名：上层要拿它的省/市/园区区域
+        self.assertEqual(region.name, "郑州奥体中心")
         self.assertGreater(conf, 0.9)
 
     def test_path_name_is_used_without_gps(self) -> None:
         region, conf, _ = classify.classify_region(make_probe(), "2024-05-18 开封/菊花节/a.MP4", self.config)
-        self.assertEqual(region, "开封古城")
+        self.assertEqual(region.name, "开封古城")
         self.assertLess(conf, 0.95)
 
     def test_unknown_when_nothing_matches(self) -> None:
@@ -159,11 +160,12 @@ class TaxonomyTests(ConfigFixture):
         decision = self._decide(kind="photo", make="Canon", model="EOS R5",
                                 lat=34.7978, lon=114.3072, gps_source="exif")
         when = datetime(2024, 5, 19, 10, 0)
+        # 时间层就是「这一次拍摄」的那一天，不再年套月
         self.assertEqual(taxonomy.target_rel(decision, when, self.config),
-                         "区域/开封古城/2024/2024-05/地拍")
+                         "区域/开封古城/2024-05-19/地拍")
         # 给了文件名，它就是文件的落位路径——不带文件名会把文件叫成「地拍」
         self.assertEqual(taxonomy.target_rel(decision, when, self.config, "IMG_8842.JPG"),
-                         "区域/开封古城/2024/2024-05/地拍/IMG_8842.JPG")
+                         "区域/开封古城/2024-05-19/地拍/IMG_8842.JPG")
 
     def test_activity_path_shape_mentions_the_year_once(self) -> None:
         decision = self._decide(kind="photo", make="SONY", model="ILCE-7M4",
@@ -171,33 +173,32 @@ class TaxonomyTests(ConfigFixture):
         decision.activity, decision.edition, decision.activity_conf = "郑州马拉松", "第3届", 0.9
         decision.branch = "activity"
         rel = taxonomy.target_rel(decision, datetime(2025, 3, 30, 8, 0), self.config)
-        self.assertEqual(rel, "活动/郑州马拉松/2025-第3届/2025-03/地拍")
+        self.assertEqual(rel, "活动/郑州马拉松/2025-第3届/2025-03-30/地拍")
 
     def test_pending_bucket_for_unknowns(self) -> None:
-        decision = classify.Decision if hasattr(classify, "Decision") else None
         from guicang.model import Decision
 
         pending = Decision(status="needs_review", shot_type="航拍")
         self.assertEqual(
             taxonomy.target_rel(pending, datetime(2024, 5, 18, 9, 0), self.config),
-            "待定/2024/2024-05/航拍",
+            "待定/2024-05-18/航拍",
         )
 
-    def test_time_depth_year_and_day(self) -> None:
-        from pathlib import Path
-
+    def test_time_depth_year_month_and_day(self) -> None:
         from guicang.model import Decision
 
         decision = Decision(status="auto", shot_type="地拍", region="开封古城", branch="region")
         when = datetime(2024, 5, 19, 10, 0)
         year_config = load_config(self.root)
         year_config.time_depth = "year"
+        month_config = load_config(self.root)
+        month_config.time_depth = "month"
         day_config = load_config(self.root)
         day_config.time_depth = "day"
         self.assertEqual(taxonomy.target_rel(decision, when, year_config), "区域/开封古城/2024/地拍")
+        self.assertEqual(taxonomy.target_rel(decision, when, month_config), "区域/开封古城/2024-05/地拍")
         self.assertEqual(taxonomy.target_rel(decision, when, day_config),
-                         "区域/开封古城/2024/2024-05/2024-05-19/地拍")
-        self.assertIsInstance(Path("x"), Path)
+                         "区域/开封古城/2024-05-19/地拍")
 
     def test_unknown_time_is_named_not_guessed(self) -> None:
         from guicang.model import Decision
@@ -205,6 +206,131 @@ class TaxonomyTests(ConfigFixture):
         decision = Decision(status="auto", shot_type="地拍", region="开封古城", branch="region")
         self.assertEqual(taxonomy.target_rel(decision, None, self.config),
                          "区域/开封古城/未知时间/地拍")
+
+
+class LayoutTests(ConfigFixture):
+    """只有一层里真的有两个以上取值时才列举——省/市/机型都按这条走。"""
+
+    def _cfg(self, places) -> "object":
+        config = load_config(self.root)
+        config.places = list(places)
+        return config
+
+    def _decision(self, place: Place, **overrides):
+        from guicang.model import Decision
+
+        decision = Decision(
+            status="auto", shot_type="航拍", branch="region",
+            region=place.name, province=place.province, city=place.city,
+        )
+        for key, value in overrides.items():
+            setattr(decision, key, value)
+        return decision
+
+    def test_single_province_and_city_are_collapsed(self) -> None:
+        place = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
+        config = self._cfg([place])
+        decision = self._decision(place)
+        when = datetime(2024, 5, 18, 9, 0)
+        layout = taxonomy.build_layout([(decision, when, "DJI Mavic 3 Pro")], config)
+        self.assertFalse(layout.use_province)
+        self.assertFalse(layout.use_city)
+        self.assertEqual(
+            taxonomy.target_rel(decision, when, config, layout=layout, camera="DJI Mavic 3 Pro"),
+            "区域/泡泡塘森林溪谷/2024-05-18/航拍",
+        )
+
+    def test_city_layer_appears_only_with_two_cities(self) -> None:
+        one = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
+        two = Place(name="开封古城", province="河南", city="开封")
+        config = self._cfg([one, two])
+        when = datetime(2024, 5, 18, 9, 0)
+        a, b = self._decision(one), self._decision(two)
+        layout = taxonomy.build_layout([(a, when, ""), (b, when, "")], config)
+        self.assertTrue(layout.use_city)
+        self.assertFalse(layout.use_province)          # 同一个省，省还是折叠
+        self.assertEqual(taxonomy.target_rel(a, when, config, layout=layout),
+                         "区域/郑州/泡泡塘森林溪谷/2024-05-18/航拍")
+
+    def test_province_layer_appears_only_with_two_provinces(self) -> None:
+        one = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
+        two = Place(name="老茶馆", province="云南", city="大理")
+        config = self._cfg([one, two])
+        when = datetime(2024, 5, 18, 9, 0)
+        a, b = self._decision(one), self._decision(two)
+        layout = taxonomy.build_layout([(a, when, ""), (b, when, "")], config)
+        self.assertTrue(layout.use_province)
+        self.assertEqual(taxonomy.target_rel(a, when, config, layout=layout),
+                         "区域/河南/郑州/泡泡塘森林溪谷/2024-05-18/航拍")
+
+    def test_camera_layer_only_for_the_day_that_has_two_cameras(self) -> None:
+        place = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
+        config = self._cfg([place])
+        mixed = datetime(2024, 5, 19, 9, 0)
+        solo = datetime(2024, 6, 1, 9, 0)
+        a = self._decision(place, shot_type="地拍")
+        b = self._decision(place, shot_type="地拍")
+        c = self._decision(place, shot_type="地拍")
+        layout = taxonomy.build_layout(
+            [(a, mixed, "Canon EOS R5"), (b, mixed, "SONY ILCE-7M4"), (c, solo, "Canon EOS R5")],
+            config,
+        )
+        self.assertTrue(layout.camera)
+        self.assertEqual(taxonomy.target_rel(a, mixed, config, layout=layout, camera="Canon EOS R5"),
+                         "区域/泡泡塘森林溪谷/2024-05-19/地拍/Canon EOS R5")
+        # 单独一天只有一台机器：不分机型
+        self.assertEqual(taxonomy.target_rel(c, solo, config, layout=layout, camera="Canon EOS R5"),
+                         "区域/泡泡塘森林溪谷/2024-06-01/地拍")
+
+    def test_unknown_camera_falls_into_its_own_bucket(self) -> None:
+        place = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
+        config = self._cfg([place])
+        when = datetime(2024, 5, 19, 9, 0)
+        a, b = self._decision(place), self._decision(place)
+        layout = taxonomy.build_layout([(a, when, "Canon EOS R5"), (b, when, "")], config)
+        self.assertEqual(taxonomy.target_rel(b, when, config, layout=layout, camera=""),
+                         "区域/泡泡塘森林溪谷/2024-05-19/航拍/未知机型")
+
+
+class AreaTests(ConfigFixture):
+    """园区里的各个区域：配置里列了就必须认出来，认不出就落待定。"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.config.places = [
+            Place(name="泡泡塘森林溪谷", province="河南", city="郑州",
+                  lat=34.7412, lon=113.7210, radius_km=3.0,
+                  areas=("水世界|水上乐园", "露营区", "花海")),
+        ]
+
+    def _decide(self, rel: str):
+        # 机型给足，好让「拍摄类型」这条不是短板——这里要测的是园区区域
+        return classify.decide(
+            make_probe(lat=34.7412, lon=113.7210, gps_source="exif",
+                       make="DJI", model="Mavic 3 Pro"),
+            rel, self.config,
+        )
+
+    def test_area_name_in_path_is_picked_up(self) -> None:
+        decision = self._decide("2024-05-18 泡泡塘森林溪谷/水上乐园/DJI_0001.MP4")
+        self.assertEqual(decision.region, "泡泡塘森林溪谷")
+        self.assertEqual(decision.area, "水世界")     # 别名归到正式名
+        self.assertEqual(decision.status, "auto")
+
+    def test_missing_area_goes_to_review_with_a_reason(self) -> None:
+        decision = self._decide("2024-05-18 泡泡塘森林溪谷/DJI_0001.MP4")
+        self.assertEqual(decision.area, "")
+        self.assertEqual(decision.status, "needs_review")
+        self.assertTrue(any("区域" in note for note in decision.notes))
+
+    def test_settle_place_fills_province_and_city(self) -> None:
+        from guicang.model import Decision
+
+        decision = Decision(status="auto", shot_type="航拍", branch="region", region="泡泡塘森林溪谷")
+        classify.settle_place(decision, self.config)
+        self.assertEqual((decision.province, decision.city), ("河南", "郑州"))
+        # 园区区域还没定，状态要拉回待定，别让它悄悄落到地点根上
+        self.assertEqual(decision.status, "needs_review")
 
 
 if __name__ == "__main__":

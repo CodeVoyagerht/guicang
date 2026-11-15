@@ -54,7 +54,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("已删除", out)
         self.assertFalse([p for p in tree.rglob("*") if p.is_file()])
-        self.assertEqual(len(list(self.root.rglob("*.MP4"))), 3)
+        # 撤销后原件一个不少：demo 库有 4 个 MP4
+        self.assertEqual(len(list(self.root.rglob("*.MP4"))), 4)
 
     def test_apply_without_yes_is_refused(self) -> None:
         self.run_cli("scan")
@@ -87,7 +88,7 @@ class CliTests(unittest.TestCase):
 
     def test_explain_shows_evidence(self) -> None:
         self.run_cli("scan")
-        code, out = self.run_cli("explain", "2024-05-18 开封古城/第39届菊花文化节/DJI_0001.MP4")
+        code, out = self.run_cli("explain", "2024-07-10 开封古城/第39届菊花文化节/DJI_0003.MP4")
         self.assertEqual(code, 0)
         self.assertIn("航拍", out)
         self.assertIn("遥测", out)

@@ -126,6 +126,13 @@ async function loadFacets() {
     });
 
   fillSelect("facet-region", "全部区域", facets.region || [], (value) => { state.filters.region = value || undefined; reload(); });
+  // 园区区域只在真的有这一层时才露出来（只有一个园区就不占地方）
+  const areaSelect = $("facet-area");
+  if (areaSelect) {
+    const areas = (facets.area || []).filter((item) => item.value && item.value !== "—");
+    areaSelect.hidden = areas.length === 0;
+    fillSelect("facet-area", "全部园区区域", areas, (value) => { state.filters.area = value || undefined; reload(); });
+  }
   fillSelect("facet-activity", "全部活动", facets.activity || [], (value) => { state.filters.activity = value || undefined; reload(); });
   fillSelect("facet-month", "全部时间", facets.month || [], (value) => { state.filters.month = value || undefined; reload(); });
 }
@@ -211,9 +218,10 @@ function renderGrid(items) {
     badge.textContent = item.status === "needs_review" ? "待定" : item.shot_type || "未定";
     sub.appendChild(badge);
     const where = document.createElement("span");
+    // 区域主枝显示完整身份（市/地点/园区区域），活动主枝显示活动+届次
     where.textContent = item.branch === "activity"
       ? `${item.activity || "活动"} ${item.edition || ""}`
-      : (item.region || "未识别");
+      : [item.city, item.region, item.area].filter(Boolean).join("/") || "未识别";
     sub.appendChild(where);
     body.appendChild(sub);
 
@@ -280,7 +288,7 @@ async function openDetail(item) {
   const rows = [
     ["拍摄时间", item.captured_at || "未知"],
     ["拍摄类型", `${item.shot_type || "?"}（${(item.shot_conf || 0).toFixed(2)}）`],
-    ["区域", `${item.region || "未识别"}（${(item.region_conf || 0).toFixed(2)}）`],
+    ["区域", `${[item.province, item.city, item.region, item.area].filter(Boolean).join(" → ") || "未识别"}（${(item.region_conf || 0).toFixed(2)}）`],
     ["活动", item.activity ? `${item.activity} ${item.edition || ""}（${(item.activity_conf || 0).toFixed(2)}）` : "—"],
     ["落位", item.target_rel || "—"],
     ["机型", item.camera || "未知"],

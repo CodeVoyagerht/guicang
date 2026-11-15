@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS assets (
     lat             REAL,
     lon             REAL,
     alt             REAL,
+    alt_kind        TEXT,
     gps_source      TEXT,
     make            TEXT,
     model           TEXT,
@@ -42,6 +43,9 @@ CREATE TABLE IF NOT EXISTS assets (
     region          TEXT,
     region_conf     REAL DEFAULT 0,
     region_evidence TEXT,
+    province        TEXT,
+    city            TEXT,
+    area            TEXT,
     activity        TEXT,
     edition         TEXT,
     activity_conf   REAL DEFAULT 0,
@@ -53,6 +57,7 @@ CREATE TABLE IF NOT EXISTS assets (
     updated_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_assets_region ON assets(region);
+CREATE INDEX IF NOT EXISTS idx_assets_area ON assets(area);
 CREATE INDEX IF NOT EXISTS idx_assets_activity ON assets(activity);
 CREATE INDEX IF NOT EXISTS idx_assets_status ON assets(status);
 CREATE INDEX IF NOT EXISTS idx_assets_captured ON assets(captured_at);
@@ -105,6 +110,7 @@ class Record:
     lat: float | None = None
     lon: float | None = None
     alt: float | None = None
+    alt_kind: str | None = None
     gps_source: str | None = None
     make: str | None = None
     model: str | None = None
@@ -118,6 +124,9 @@ class Record:
     region: str | None = None
     region_conf: float = 0.0
     region_evidence: str | None = None
+    province: str | None = None
+    city: str | None = None
+    area: str | None = None
     activity: str | None = None
     edition: str | None = None
     activity_conf: float = 0.0
@@ -176,6 +185,7 @@ class Filters:
     """网页与 CLI 共用的一套筛选条件。空值就是不过滤。"""
 
     region: str | None = None
+    area: str | None = None
     activity: str | None = None
     shot_type: str | None = None
     year: int | None = None
@@ -191,6 +201,7 @@ class Filters:
         args: list = []
         for column, value in (
             ("region", self.region),
+            ("area", self.area),
             ("activity", self.activity),
             ("shot_type", self.shot_type),
             ("kind", self.kind),
@@ -222,6 +233,15 @@ def _now() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
 
 
+def _ensure_columns(conn) -> None:
+    """老索引补列。0.1.0 建的库没有省/市/区域三列，直接 ALTER 加上，
+    别让用户为了三个新字段重建索引、丢掉所有人工钉住。"""
+    present = {row["name"] for row in conn.execute("PRAGMA table_info(assets)")}
+    for column in ("province", "city", "area", "alt_kind"):
+        if column not in present:
+            conn.execute(f"ALTER TABLE assets ADD COLUMN {column} TEXT")
+
+
 class Store:
     """索引的读写口。用 with 块打开，退出即提交。"""
 
@@ -233,6 +253,7 @@ class Store:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        _ensure_columns(self.conn)
         self.conn.commit()
 
     def __enter__(self) -> "Store":
@@ -312,6 +333,8 @@ class Store:
         ).fetchall()
         return {
             "region": group("region"),
+            "area": group("area"),
+            "city": group("city"),
             "activity": group("activity"),
             "shot_type": group("shot_type"),
             "status": group("status"),

@@ -27,7 +27,7 @@ class ScannerTests(unittest.TestCase):
     def test_full_scan_counts(self) -> None:
         report = self._scan()
         self.assertEqual(report.seen, 8)
-        self.assertEqual(report.sidecars, 1)
+        self.assertEqual(report.sidecars, 2)
         self.assertEqual(report.needs_review, 2)
         self.assertEqual(report.errors, [])
 

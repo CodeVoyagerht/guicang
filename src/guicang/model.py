@@ -48,7 +48,8 @@ class Probe:
     captured_conf: float = 0.0
     lat: float | None = None
     lon: float | None = None
-    alt: float | None = None       # 相对起飞点的高度（DJI SRT 的 rel_alt）优先
+    alt: float | None = None        # 高度
+    alt_kind: str = ""             # relative（相对起飞点，DJI 遥测）| absolute（海拔）
     gps_source: str = ""           # exif | srt | quicktime
     make: str = ""
     model: str = ""
@@ -71,9 +72,12 @@ class Decision:
     shot_conf: float = 0.0
     shot_evidence: list[Evidence] = field(default_factory=list)
 
-    region: str | None = None       # "杭州/西湖"
+    region: str | None = None       # 地点名，如「泡泡塘森林溪谷」
     region_conf: float = 0.0
     region_evidence: list[Evidence] = field(default_factory=list)
+    province: str = ""              # 地点所属省，来自 places.toml
+    city: str = ""                  # 地点所属地级市，来自 places.toml
+    area: str = ""                  # 园区里的区域，如「水世界」
 
     activity: str | None = None     # 活动类型名
     edition: str | None = None      # 届次或年份
@@ -84,10 +88,14 @@ class Decision:
     status: str = "auto"            # auto | needs_review | ignored
     notes: list[str] = field(default_factory=list)  # 落到待定时用大白话说清为什么
 
+    def chain(self) -> list[str]:
+        """地点这一串层级：省 / 市 / 地点 / 区域，空的自动跳过。"""
+        return [part for part in (self.province, self.city, self.region, self.area) if part]
+
     def summary(self) -> str:
         if self.branch == "activity":
             return f"活动/{self.activity}/{self.edition or '-'}/{self.shot_type}"
-        return f"区域/{self.region or '-'}/{self.shot_type}"
+        return f"区域/{'/'.join(self.chain()) or '-'}/{self.shot_type}"
 
 
 AUTO_THRESHOLD = 0.75
