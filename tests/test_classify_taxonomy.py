@@ -160,12 +160,12 @@ class TaxonomyTests(ConfigFixture):
         decision = self._decide(kind="photo", make="Canon", model="EOS R5",
                                 lat=34.7978, lon=114.3072, gps_source="exif")
         when = datetime(2024, 5, 19, 10, 0)
-        # 时间层就是「这一次拍摄」的那一天，不再年套月
+        # 时间层是「先分年份，再分备份周期」：05-19 是周日，属于 05-18 那个周六起的周期
         self.assertEqual(taxonomy.target_rel(decision, when, self.config),
-                         "区域/开封古城/2024-05-19/地拍")
+                         "区域/开封古城/2024/2024-05-18_05-24/地拍")
         # 给了文件名，它就是文件的落位路径——不带文件名会把文件叫成「地拍」
         self.assertEqual(taxonomy.target_rel(decision, when, self.config, "IMG_8842.JPG"),
-                         "区域/开封古城/2024-05-19/地拍/IMG_8842.JPG")
+                         "区域/开封古城/2024/2024-05-18_05-24/地拍/IMG_8842.JPG")
 
     def test_activity_path_shape_mentions_the_year_once(self) -> None:
         decision = self._decide(kind="photo", make="SONY", model="ILCE-7M4",
@@ -173,7 +173,37 @@ class TaxonomyTests(ConfigFixture):
         decision.activity, decision.edition, decision.activity_conf = "郑州马拉松", "第3届", 0.9
         decision.branch = "activity"
         rel = taxonomy.target_rel(decision, datetime(2025, 3, 30, 8, 0), self.config)
-        self.assertEqual(rel, "活动/郑州马拉松/2025-第3届/2025-03-30/地拍")
+        self.assertEqual(rel, "活动/郑州马拉松/2025-第3届/2025/2025-03-29_04-04/地拍")
+
+    def test_activity_without_edition_does_not_repeat_the_year(self) -> None:
+        from guicang.model import Decision
+
+        # demo 里郑州马拉松没写「第N届」，届次只能退回年份 —— 年份不能再挂一遍
+        decision = Decision(status="auto", shot_type="地拍", branch="activity",
+                            activity="郑州马拉松", edition="2025年", activity_conf=0.9)
+        rel = taxonomy.target_rel(decision, datetime(2025, 3, 16, 8, 0), self.config)
+        self.assertEqual(rel, "活动/郑州马拉松/2025/2025-03-15_03-21/地拍")
+
+    def test_douyin_is_its_own_tree(self) -> None:
+        from guicang.model import Decision
+
+        decision = Decision(status="auto", shot_type="地拍", branch="douyin",
+                            branch_conf=0.9)
+        self.assertEqual(
+            taxonomy.target_rel(decision, datetime(2024, 8, 3, 11, 0), self.config),
+            "抖音/2024/2024-08-03_08-09/地拍",
+        )
+
+    def test_douyin_pending_shot_stays_in_its_branch(self) -> None:
+        from guicang.model import Decision
+
+        # 抖音素材拍摄类型没把握：留在抖音枝里，最后一层写「待定」，
+        # 不许丢进根上的待定桶——那样剪辑在抖音文件夹里就找不着它了
+        decision = Decision(status="needs_review", shot_type="航拍", branch="douyin")
+        self.assertEqual(
+            taxonomy.target_rel(decision, datetime(2024, 8, 3, 17, 0), self.config),
+            "抖音/2024/2024-08-03_08-09/待定",
+        )
 
     def test_pending_bucket_for_unknowns(self) -> None:
         from guicang.model import Decision
@@ -181,24 +211,44 @@ class TaxonomyTests(ConfigFixture):
         pending = Decision(status="needs_review", shot_type="航拍")
         self.assertEqual(
             taxonomy.target_rel(pending, datetime(2024, 5, 18, 9, 0), self.config),
-            "待定/2024-05-18/航拍",
+            "待定/2024/2024-05-18_05-24/航拍",
         )
 
-    def test_time_depth_year_month_and_day(self) -> None:
+    def test_time_depth_year_month_day_and_week(self) -> None:
         from guicang.model import Decision
 
         decision = Decision(status="auto", shot_type="地拍", region="开封古城", branch="region")
         when = datetime(2024, 5, 19, 10, 0)
-        year_config = load_config(self.root)
-        year_config.time_depth = "year"
-        month_config = load_config(self.root)
-        month_config.time_depth = "month"
-        day_config = load_config(self.root)
-        day_config.time_depth = "day"
-        self.assertEqual(taxonomy.target_rel(decision, when, year_config), "区域/开封古城/2024/地拍")
-        self.assertEqual(taxonomy.target_rel(decision, when, month_config), "区域/开封古城/2024-05/地拍")
-        self.assertEqual(taxonomy.target_rel(decision, when, day_config),
+        configs = {}
+        for depth in ("year", "month", "day", "week"):
+            config = load_config(self.root)
+            config.time_depth = depth
+            configs[depth] = config
+        self.assertEqual(taxonomy.target_rel(decision, when, configs["year"]),
+                         "区域/开封古城/2024/地拍")
+        self.assertEqual(taxonomy.target_rel(decision, when, configs["month"]),
+                         "区域/开封古城/2024-05/地拍")
+        self.assertEqual(taxonomy.target_rel(decision, when, configs["day"]),
                          "区域/开封古城/2024-05-19/地拍")
+        self.assertEqual(taxonomy.target_rel(decision, when, configs["week"]),
+                         "区域/开封古城/2024/2024-05-18_05-24/地拍")
+
+    def test_week_runs_saturday_to_friday(self) -> None:
+        # 天天的规矩：每个周六是周期起点，周五是终点
+        saturday = datetime(2026, 8, 1, 9, 0)
+        friday = datetime(2026, 8, 7, 23, 0)
+        weekday_before = datetime(2026, 7, 31, 23, 0)
+        self.assertEqual(taxonomy.week_label(saturday), "2026-08-01_08-07")
+        self.assertEqual(taxonomy.week_label(friday), "2026-08-01_08-07")
+        self.assertEqual(taxonomy.week_label(weekday_before), "2026-07-25_07-31")
+
+    def test_week_across_new_year_stays_in_the_starting_year(self) -> None:
+        # 2024-12-28（周六）到 2025-01-03（周五）是同一个周期，
+        # 整段放在起始年下面，不然一个周期会被拆成两个年文件夹
+        label = taxonomy.week_label(datetime(2025, 1, 3, 10, 0))
+        self.assertEqual(label, "2024-12-28_2025-01-03")
+        self.assertEqual(taxonomy.time_parts(datetime(2025, 1, 3, 10, 0), "week"),
+                         ["2024", "2024-12-28_2025-01-03"])
 
     def test_unknown_time_is_named_not_guessed(self) -> None:
         from guicang.model import Decision
@@ -237,7 +287,7 @@ class LayoutTests(ConfigFixture):
         self.assertFalse(layout.use_city)
         self.assertEqual(
             taxonomy.target_rel(decision, when, config, layout=layout, camera="DJI Mavic 3 Pro"),
-            "区域/泡泡塘森林溪谷/2024-05-18/航拍",
+            "区域/泡泡塘森林溪谷/2024/2024-05-18_05-24/航拍",
         )
 
     def test_city_layer_appears_only_with_two_cities(self) -> None:
@@ -250,7 +300,7 @@ class LayoutTests(ConfigFixture):
         self.assertTrue(layout.use_city)
         self.assertFalse(layout.use_province)          # 同一个省，省还是折叠
         self.assertEqual(taxonomy.target_rel(a, when, config, layout=layout),
-                         "区域/郑州/泡泡塘森林溪谷/2024-05-18/航拍")
+                         "区域/郑州/泡泡塘森林溪谷/2024/2024-05-18_05-24/航拍")
 
     def test_province_layer_appears_only_with_two_provinces(self) -> None:
         one = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
@@ -261,7 +311,7 @@ class LayoutTests(ConfigFixture):
         layout = taxonomy.build_layout([(a, when, ""), (b, when, "")], config)
         self.assertTrue(layout.use_province)
         self.assertEqual(taxonomy.target_rel(a, when, config, layout=layout),
-                         "区域/河南/郑州/泡泡塘森林溪谷/2024-05-18/航拍")
+                         "区域/河南/郑州/泡泡塘森林溪谷/2024/2024-05-18_05-24/航拍")
 
     def test_camera_layer_only_for_the_day_that_has_two_cameras(self) -> None:
         place = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
@@ -277,10 +327,10 @@ class LayoutTests(ConfigFixture):
         )
         self.assertTrue(layout.camera)
         self.assertEqual(taxonomy.target_rel(a, mixed, config, layout=layout, camera="Canon EOS R5"),
-                         "区域/泡泡塘森林溪谷/2024-05-19/地拍/Canon EOS R5")
+                         "区域/泡泡塘森林溪谷/2024/2024-05-18_05-24/地拍/Canon EOS R5")
         # 单独一天只有一台机器：不分机型
         self.assertEqual(taxonomy.target_rel(c, solo, config, layout=layout, camera="Canon EOS R5"),
-                         "区域/泡泡塘森林溪谷/2024-06-01/地拍")
+                         "区域/泡泡塘森林溪谷/2024/2024-06-01_06-07/地拍")
 
     def test_unknown_camera_falls_into_its_own_bucket(self) -> None:
         place = Place(name="泡泡塘森林溪谷", province="河南", city="郑州")
@@ -289,7 +339,7 @@ class LayoutTests(ConfigFixture):
         a, b = self._decision(place), self._decision(place)
         layout = taxonomy.build_layout([(a, when, "Canon EOS R5"), (b, when, "")], config)
         self.assertEqual(taxonomy.target_rel(b, when, config, layout=layout, camera=""),
-                         "区域/泡泡塘森林溪谷/2024-05-19/航拍/未知机型")
+                         "区域/泡泡塘森林溪谷/2024/2024-05-18_05-24/航拍/未知机型")
 
 
 class AreaTests(ConfigFixture):

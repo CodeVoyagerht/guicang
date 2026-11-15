@@ -24,7 +24,25 @@ REGION_KEY = "region"
 AREA_KEY = "area"
 ACTIVITY_KEY = "activity"
 EDITION_KEY = "edition"
-_KEYS = (SHOT_KEY, REGION_KEY, AREA_KEY, ACTIVITY_KEY, EDITION_KEY)
+BRANCH_KEY = "branch"
+_KEYS = (SHOT_KEY, REGION_KEY, AREA_KEY, ACTIVITY_KEY, EDITION_KEY, BRANCH_KEY)
+
+# branch 字段收人话也收英文：抖音 / region / activity
+BRANCH_ALIASES = {
+    "抖音": "douyin",
+    "douyin": "douyin",
+    "区域": "region",
+    "region": "region",
+    "活动": "activity",
+    "activity": "activity",
+}
+
+
+def normalize_branch(value) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    return BRANCH_ALIASES.get(text) or BRANCH_ALIASES.get(text.lower())
 
 MANUAL_WEIGHT = 1.0
 
@@ -61,7 +79,8 @@ def save_manual(root: Path | str, entries: dict[str, dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     body = {
         "_说明": "人工钉住的判定，优先级最高。key 是相对素材根目录的路径（正斜杠）。"
-                 "可用字段：shot_type / region / activity / edition。删掉某条即恢复自动判定。",
+                 "可用字段：shot_type / region / area / activity / edition / branch（抖音|区域|活动）。"
+                 "删掉某条即恢复自动判定。",
         "paths": {rel: {key: str(entry[key]) for key in _KEYS if entry.get(key)}
                   for rel, entry in sorted(entries.items())},
     }
@@ -135,26 +154,39 @@ def apply(decision: Decision, entry: dict | None, when=None) -> Decision:
             Evidence("manual", f"人工指定届次：{entry[EDITION_KEY]}", MANUAL_WEIGHT)
         ]
 
-    _refresh_branch_and_status(decision)
+    forced = normalize_branch(entry.get(BRANCH_KEY))
+    if forced:
+        decision.branch = forced
+        decision.branch_conf = MANUAL_WEIGHT
+        decision.branch_evidence = [
+            Evidence("manual", f"人工指定分支：{entry[BRANCH_KEY]}", MANUAL_WEIGHT)
+        ]
+
+    _refresh_branch_and_status(decision, forced)
     return decision
 
 
-def _refresh_branch_and_status(decision: Decision) -> None:
+def _refresh_branch_and_status(decision: Decision, forced: str | None = None) -> None:
     from .model import AUTO_THRESHOLD
 
-    if decision.activity and decision.activity_conf >= ACTIVITY_THRESHOLD:
+    if forced:
+        decision.branch = forced
+    elif decision.branch == "douyin" and decision.branch_conf >= AUTO_THRESHOLD:
+        decision.branch = "douyin"          # 路径里写了抖音，关键字判出来的
+    elif decision.activity and decision.activity_conf >= ACTIVITY_THRESHOLD:
         decision.branch = "activity"
     else:
         decision.branch = "region"
 
     missing = []
-    if not decision.region:
-        missing.append("区域未识别")
-    elif decision.region_conf < AUTO_THRESHOLD:
-        missing.append("区域没把握")
+    if decision.branch == "region":
+        if not decision.region:
+            missing.append("区域未识别")
+        elif decision.region_conf < AUTO_THRESHOLD:
+            missing.append("区域没把握")
     if decision.shot_conf < AUTO_THRESHOLD:
         missing.append("拍摄类型没把握")
-    if decision.activity and decision.activity_conf < ACTIVITY_THRESHOLD:
+    if decision.branch == "activity" and decision.activity and decision.activity_conf < ACTIVITY_THRESHOLD:
         missing.append("活动没把握")
     decision.status = "needs_review" if missing else "auto"
     if missing:

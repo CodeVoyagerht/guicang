@@ -16,6 +16,8 @@ from .model import AUTO_THRESHOLD, Decision, Evidence, Probe
 
 SHOT_TYPES = ("航拍", "地拍", "延时", "FPV", "其他")
 ACTIVITY_THRESHOLD = 0.7
+# 抖音枝：只认路径里的字，不认画幅比例
+_DOUYIN_RE = re.compile(r"抖音|douyin|竖屏", re.I)
 
 # ── 拍摄类型规则 ──────────────────────────────────────────────────────────────
 
@@ -219,12 +221,29 @@ def classify_activity(
     return activity, edition, confidence, evidence
 
 
+def classify_douyin(rel_path: str) -> tuple[bool, float, list[Evidence]]:
+    """这条素材是不是「抖音拍摄类」。
+
+    只看路径里的字：抖音 / douyin / 竖屏。**不按画幅比例猜**——手机竖着拍的日常素材
+    不该一股脑冲进抖音枝。看不出来的留在区域或活动枝，需要时 ``review --branch 抖音`` 钉一次。
+    """
+    evidence: list[Evidence] = []
+    match = _DOUYIN_RE.search(rel_path)
+    if not match:
+        return False, 0.0, evidence
+    evidence.append(
+        Evidence("path:douyin", f"路径里出现「{match.group(0)}」，按抖音素材单独归档", 0.9)
+    )
+    return True, 0.9, evidence
+
+
 def decide(probe: Probe, rel_path: str, config: Config) -> Decision:
     """一次分类的完整结论。三条证据链各自独立，互不污染置信度。"""
     shot_type, shot_conf, shot_evidence = classify_shot(probe, rel_path)
     place, region_conf, region_evidence = classify_region(probe, rel_path, config)
     area, _, area_evidence = classify_area(place, rel_path)
     activity, edition, activity_conf, activity_evidence = classify_activity(probe, rel_path, config)
+    is_douyin, douyin_conf, douyin_evidence = classify_douyin(rel_path)
 
     decision = Decision(
         shot_type=shot_type,
@@ -241,7 +260,16 @@ def decide(probe: Probe, rel_path: str, config: Config) -> Decision:
         activity_conf=activity_conf,
         activity_evidence=activity_evidence,
     )
-    decision.branch = "activity" if activity and activity_conf >= ACTIVITY_THRESHOLD else "region"
+    if is_douyin:
+        decision.branch = "douyin"
+        decision.branch_conf = douyin_conf
+        decision.branch_evidence = douyin_evidence
+    elif activity and activity_conf >= ACTIVITY_THRESHOLD:
+        decision.branch = "activity"
+        decision.branch_conf = activity_conf
+        decision.branch_evidence = list(activity_evidence)
+    else:
+        decision.branch = "region"
 
     if decision.branch == "region" and decision.region is None:
         decision.status = "needs_review"

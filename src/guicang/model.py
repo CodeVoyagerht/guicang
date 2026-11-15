@@ -84,7 +84,9 @@ class Decision:
     activity_conf: float = 0.0
     activity_evidence: list[Evidence] = field(default_factory=list)
 
-    branch: str = "region"          # region | activity
+    branch: str = "region"          # region | activity | douyin
+    branch_conf: float = 0.0        # 凭什么进这棵枝（抖音关键字、活动命中…）
+    branch_evidence: list[Evidence] = field(default_factory=list)
     status: str = "auto"            # auto | needs_review | ignored
     notes: list[str] = field(default_factory=list)  # 落到待定时用大白话说清为什么
 
@@ -93,6 +95,8 @@ class Decision:
         return [part for part in (self.province, self.city, self.region, self.area) if part]
 
     def summary(self) -> str:
+        if self.branch == "douyin":
+            return f"抖音/{self.shot_type}"
         if self.branch == "activity":
             return f"活动/{self.activity}/{self.edition or '-'}/{self.shot_type}"
         return f"区域/{'/'.join(self.chain()) or '-'}/{self.shot_type}"

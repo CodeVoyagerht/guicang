@@ -42,7 +42,12 @@ def text_report(config: Config, store: Store) -> str:
     lines.append(f"素材 {total} 个，{human_size(bytes_total)}；"
                  f"索引 {config.index_path.name}，分类树 {config.tree}/")
 
-    lines.extend(_table("按分支", Counter(record.branch or "-" for record in records), total))
+    branch_names = {"region": "区域", "activity": "活动", "douyin": "抖音"}
+    lines.extend(_table(
+        "按分支",
+        Counter(branch_names.get(record.branch or "", record.branch or "—") for record in records),
+        total,
+    ))
     lines.extend(_table("按拍摄类型", Counter(record.shot_type or "-" for record in records), total))
     lines.extend(_table("按状态", Counter(record.status or "-" for record in records), total))
     lines.extend(_table("按区域", Counter(record.region or "未识别" for record in records), total))
@@ -60,6 +65,12 @@ def text_report(config: Config, store: Store) -> str:
 
     years = Counter(str(record.year or "未知") for record in records)
     lines.extend(_table("按年份", years, total))
+    weeks = Counter(record.week or "未知" for record in records)
+    recent_weeks = sorted((w for w in weeks if w != "未知"), reverse=True)[:8]
+    if recent_weeks:
+        lines.append("最近 8 个周期（周六 → 周五）：")
+        for week in recent_weeks:
+            lines.append(f"  {week}  {weeks[week]:>6}  {_bar(weeks[week], total)}")
     months = Counter(record.month or "未知" for record in records)
     recent = sorted((m for m in months if m != "未知"), reverse=True)[:12]
     if recent:

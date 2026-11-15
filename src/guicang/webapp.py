@@ -97,11 +97,13 @@ def _record_json(record: Record) -> dict:
         "edition": record.edition,
         "activity_conf": record.activity_conf,
         "branch": record.branch,
+        "branch_conf": record.branch_conf,
         "status": record.status,
         "camera": record.camera,
         "width": record.width,
         "height": record.height,
         "duration": record.duration,
+        "week": record.week,
         "target_rel": record.target_rel,
         "notes": record.notes,
     }
@@ -350,6 +352,7 @@ class Handler(BaseHTTPRequestHandler):
             "shot": _evidence_list(record.shot_evidence),
             "region": _evidence_list(record.region_evidence),
             "activity": _evidence_list(record.activity_evidence),
+            "branch": _evidence_list(record.branch_evidence),
         }
         self._send_json(payload)
 

@@ -26,16 +26,16 @@ class ScannerTests(unittest.TestCase):
 
     def test_full_scan_counts(self) -> None:
         report = self._scan()
-        self.assertEqual(report.seen, 8)
-        self.assertEqual(report.sidecars, 2)
-        self.assertEqual(report.needs_review, 2)
+        self.assertEqual(report.seen, _support.DEMO_CLIPS)
+        self.assertEqual(report.sidecars, _support.DEMO_SIDECARS)
+        self.assertEqual(report.needs_review, _support.DEMO_PENDING)
         self.assertEqual(report.errors, [])
 
     def test_rescan_is_incremental(self) -> None:
         self._scan()
         again = self._scan()
         self.assertEqual(again.added, 0)
-        self.assertEqual(again.unchanged, 8)
+        self.assertEqual(again.unchanged, _support.DEMO_CLIPS)
 
     def test_tree_and_index_are_not_rescanned(self) -> None:
         self._scan()
@@ -45,18 +45,18 @@ class ScannerTests(unittest.TestCase):
             apply_plan(build_plan(self.config, store.query(limit=100)), store)
         again = self._scan()
         # 分类树里的硬链接是副本，不能再被当成新素材收进来
-        self.assertEqual(again.seen, 8)
+        self.assertEqual(again.seen, _support.DEMO_CLIPS)
 
     def test_manual_pin_promotes_to_auto(self) -> None:
         self._scan()
         with store_mod.Store(self.config.index_path) as store:
             pending = store.query(store_mod.Filters(status="needs_review"), limit=10)
         self.assertTrue(pending)
-        target = pending[0]
+        target = [row for row in pending if row.branch == "region"][0]
         manual.set_manual(self.config.root, target.rel_path,
                           region="开封古城", shot_type="地拍")
         report = self._scan(force=True)
-        self.assertEqual(report.needs_review, 1)
+        self.assertEqual(report.needs_review, _support.DEMO_PENDING - 1)
         with store_mod.Store(self.config.index_path) as store:
             after = store.get_asset(target.rel_path)
         self.assertEqual(after.region, "开封古城")

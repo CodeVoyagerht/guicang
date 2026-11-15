@@ -20,7 +20,7 @@ ACTIVITIES_FILE = "activities.toml"
 INDEX_FILE = "index.db"
 DEFAULT_TREE = "_归藏"
 
-TIME_DEPTHS = ("year", "month", "day")
+TIME_DEPTHS = ("week", "day", "month", "year")
 
 
 @dataclass(frozen=True)
@@ -100,10 +100,11 @@ class SyncConfig:
 class Config:
     root: Path
     tree: str = DEFAULT_TREE
-    time_depth: str = "day"
+    time_depth: str = "week"
     region_enabled: bool = True
     activity_enabled: bool = True
     camera_layer: bool = True       # 同一处同一天有两个以上机型时，多分一层机型
+    backup_dir: str = ""            # 备份盘上的镜像根，[backup] dir；空表示还没配
     places: list[Place] = field(default_factory=list)
     activities: list[Activity] = field(default_factory=list)
     web_host: str = "127.0.0.1"
@@ -124,6 +125,13 @@ class Config:
     @property
     def tree_root(self) -> Path:
         return self.root / self.tree
+
+    @property
+    def backup_root(self) -> Path | None:
+        """备份盘上的镜像根。没配就返回 None，别猜一个盘符出来。"""
+        if not self.backup_dir:
+            return None
+        return Path(self.backup_dir).expanduser()
 
     @property
     def excluded_names(self) -> set[str]:
@@ -229,12 +237,13 @@ def load_config(root: Path | str, *, overrides: dict | None = None) -> Config:
     web_block = settings.get("web", {}) or {}
     sync_block = settings.get("sync", {}) or {}
 
-    depth = _as_str(time_block.get("depth"), "day").strip().lower()
+    depth = _as_str(time_block.get("depth"), "week").strip().lower()
     if depth not in TIME_DEPTHS:
-        depth = "day"
+        depth = "week"
 
     sync_local = sync_block.get("local", {}) or {}
     sync_s3 = sync_block.get("s3", {}) or {}
+    backup_block = settings.get("backup", {}) or {}
     sync = SyncConfig(
         backend=_as_str(sync_block.get("backend"), "local").strip().lower() or "local",
         local_dir=_as_str(sync_local.get("dir")),
@@ -253,6 +262,7 @@ def load_config(root: Path | str, *, overrides: dict | None = None) -> Config:
         region_enabled=bool(region_block.get("enabled", True)),
         activity_enabled=bool(activity_block.get("enabled", True)),
         camera_layer=bool(layout_block.get("camera", True)),
+        backup_dir=_as_str(backup_block.get("dir")).strip(),
         places=_load_places(directory / PLACES_FILE),
         activities=_load_activities(directory / ACTIVITIES_FILE),
         web_host=_as_str(web_block.get("host"), "127.0.0.1"),
@@ -277,8 +287,12 @@ CONFIG_TEMPLATE = """\
 tree = "_归藏"
 
 [time]
-# 时间粒度：day = 每次拍摄一层（2024-05-18）| month | year
-depth = "day"
+# 时间粒度：
+#   week  = 先分年，再分周期（周六→周五，就是备份周期）：2026/2026-08-01_08-07
+#   day   = 每次拍摄一层（2026-08-18）
+#   month = 2026-08
+#   year  = 2026
+depth = "week"
 
 [region]
 enabled = true
@@ -311,6 +325,11 @@ bucket = ""
 access_key = ""
 secret_key = ""
 prefix = "guicang/"
+
+[backup]
+# 备份盘上的镜像根。guicang backup 会把 _归藏/ 这棵树原样复制/硬链接到这里，
+# 备份盘上得到的结构跟主库一模一样。留空就表示还没配，用 --to 临时指定也行。
+dir = ""
 """
 
 PLACES_TEMPLATE = """\

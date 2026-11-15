@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS assets (
     activity_conf   REAL DEFAULT 0,
     activity_evidence TEXT,
     branch          TEXT,
+    branch_conf     REAL DEFAULT 0,
+    branch_evidence TEXT,
     status          TEXT,
     target_rel      TEXT,
     notes           TEXT,
@@ -132,6 +134,8 @@ class Record:
     activity_conf: float = 0.0
     activity_evidence: str | None = None
     branch: str | None = None
+    branch_conf: float = 0.0
+    branch_evidence: str | None = None
     status: str | None = None
     target_rel: str | None = None
     notes: str | None = None
@@ -155,6 +159,16 @@ class Record:
     def month(self) -> str | None:
         when = self.captured_dt
         return f"{when.year:04d}-{when.month:02d}" if when else None
+
+    @property
+    def week(self) -> str | None:
+        """这条素材落在哪个备份周期里（周六 → 周五）。"""
+        when = self.captured_dt
+        if when is None:
+            return None
+        from .taxonomy import week_label
+
+        return week_label(when)
 
     @property
     def camera(self) -> str:
@@ -234,12 +248,19 @@ def _now() -> str:
 
 
 def _ensure_columns(conn) -> None:
-    """老索引补列。0.1.0 建的库没有省/市/区域三列，直接 ALTER 加上，
-    别让用户为了三个新字段重建索引、丢掉所有人工钉住。"""
+    """老索引补列。早期版本建的库没有这些列，直接 ALTER 加上，
+    别让用户为了几个新字段重建索引、丢掉所有人工钉住。"""
     present = {row["name"] for row in conn.execute("PRAGMA table_info(assets)")}
-    for column in ("province", "city", "area", "alt_kind"):
+    for column, kind in (
+        ("province", "TEXT"),
+        ("city", "TEXT"),
+        ("area", "TEXT"),
+        ("alt_kind", "TEXT"),
+        ("branch_conf", "REAL DEFAULT 0"),
+        ("branch_evidence", "TEXT"),
+    ):
         if column not in present:
-            conn.execute(f"ALTER TABLE assets ADD COLUMN {column} TEXT")
+            conn.execute(f"ALTER TABLE assets ADD COLUMN {column} {kind}")
 
 
 class Store:

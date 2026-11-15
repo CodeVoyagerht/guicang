@@ -21,7 +21,7 @@ from .classify import SHOT_TYPES
 from .config import CONFIG_DIR, TIME_DEPTHS, ConfigError, load_config, write_templates
 from .export import export_collection, write_csv, write_json, write_pathlist
 from .manual import clear_manual, load_manual, manual_path, set_manual
-from .materialize import MODES, apply_plan, build_plan, undo_run
+from .materialize import BACKUP_MODES, MODES, apply_plan, build_plan, mirror_tree, undo_run
 from .paths import human_size, rel_posix
 from .report import text_report, write_pending_csv
 from .scanner import scan
@@ -247,11 +247,12 @@ def cmd_review(args) -> int:
             clear_manual(config.root, rel)
             print(f"已清掉 {rel} 的人工判定")
         else:
-            if not any([args.shot, args.region, args.area, args.activity, args.edition]):
-                print("至少要给一个 --shot / --region / --area / --activity / --edition")
+            if not any([args.shot, args.region, args.area, args.activity, args.edition, args.branch]):
+                print("至少要给一个 --shot / --region / --area / --activity / --edition / --branch")
                 return 1
             set_manual(config.root, rel, shot_type=args.shot, region=args.region,
-                       area=args.area, activity=args.activity, edition=args.edition)
+                       area=args.area, activity=args.activity, edition=args.edition,
+                       branch=args.branch)
             print(f"已记下 {rel} 的人工判定，下次 scan 生效：")
             for key, value in (load_manual(config.root).get(rel) or {}).items():
                 print(f"  {key} = {value}")
@@ -285,6 +286,7 @@ def cmd_review(args) -> int:
         if record.region and not record.area:
             hint.append('--area "<园区区域>"')
         print("      钉住：guicang review " + " ".join(hint))
+        print(f"      如果它其实是抖音素材：guicang review --set \"{record.rel_path}\" --branch 抖音")
     print("\n也可以不改判定、直接把待定素材单独整理：guicang plan --only-review")
     return 0
 
@@ -306,14 +308,15 @@ def cmd_explain(args) -> int:
     print(f"  区域      {chain or '未识别'}（{record.region_conf or 0:.2f}）")
     if record.activity:
         print(f"  活动      {record.activity} {record.edition or ''}（{record.activity_conf or 0:.2f}）")
-    print(f"  分支      {record.branch} · 状态 {record.status}")
+    branch_label = {"region": "区域", "activity": "活动", "douyin": "抖音"}.get(record.branch or "", record.branch or "?")
+    print(f"  分支      {branch_label}（{record.branch_conf or 0:.2f}）· 状态 {record.status}")
     print(f"  落位      {record.target_rel or '—'}")
     if record.camera:
         print(f"  机型      {record.camera}")
     if record.lat is not None and record.lon is not None:
         print(f"  坐标      {record.lat:.5f}, {record.lon:.5f}（来源 {record.gps_source or '无'}）")
     for title, raw in (("拍摄类型", record.shot_evidence), ("区域", record.region_evidence),
-                       ("活动", record.activity_evidence)):
+                       ("活动", record.activity_evidence), ("分支", record.branch_evidence)):
         rows = _loads(raw)
         if not rows:
             continue
@@ -401,6 +404,35 @@ def cmd_sync(args) -> int:
     for line in report.errors[:10]:
         print(f"  {line}")
     return 0 if not report.failed else 1
+
+
+def cmd_backup(args) -> int:
+    """把分类树原样镜像到备份盘。主库怎么分，备份盘就怎么分。"""
+    config = _config(args)
+    target = Path(args.to).expanduser() if args.to else config.backup_root
+    if target is None:
+        print("还没配备份盘。两种办法：")
+        print("  ① 在 .guicang/guicang.toml 里加：")
+        print("       [backup]")
+        print("       dir = \"E:\\\\归藏备份\"")
+        print("  ② 或者这次直接给路径：guicang backup --to E:\\归藏备份")
+        return 1
+    target = target.resolve()
+    with Store(config.index_path) as store:
+        if not args.yes and not args.dry_run:
+            if not _confirm(f"把 {config.tree_root} 镜像到 {target}？", args.yes):
+                print("已取消。")
+                return 1
+        report = mirror_tree(config, store, target, mode=args.mode, dry_run=args.dry_run)
+    if args.dry_run:
+        print(f"演练：会镜像到 {target}（模式 {args.mode}），先不写盘。")
+        print(report.summary())
+    else:
+        print(report.summary())
+        print(f"备份盘：{target}")
+        for line in report.errors[:10]:
+            print(f"  {line}")
+    return 0 if not report.errors else 1
 
 
 def _resolve_collection(store: Store, wanted: str) -> tuple[int, str] | None:
@@ -574,6 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--area", help="园区里的区域名（places.toml 的 areas 里列过的）")
     p.add_argument("--activity", help="活动名")
     p.add_argument("--edition", help="届次，如 2026-第3届")
+    p.add_argument("--branch", choices=["抖音", "区域", "活动"], help="强制进哪棵树（抖音素材单独一棵）")
     p.add_argument("--clear", action="store_true", help="清掉这条的人工判定")
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(func=cmd_review)
@@ -598,6 +631,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year")
     p.add_argument("--limit", type=int, default=100000)
     p.set_defaults(func=cmd_sync)
+
+    p = add("backup", "把分类树原样镜像到备份盘")
+    p.add_argument("--to", default="", help="备份根目录（默认用 [backup] dir）")
+    p.add_argument("--mode", choices=BACKUP_MODES, default="hardlink",
+                   help="hardlink=同盘零占用（默认），copy=真复制")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--yes", action="store_true")
+    p.set_defaults(func=cmd_backup)
 
     p = add("export", "导出台账 / 选集清单")
     p.add_argument("--collection", default="", help="选集 id 或名字")

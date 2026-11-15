@@ -214,6 +214,9 @@ def build(target: Path | str, *, clean: bool = False) -> Path:
     这个例子故意只有**一个省**（河南），所以「河南」那一层会被折叠掉；
     有两个市（郑州、开封），所以市这一层会留着——正好演示「一层只放一个
     名字的层级不列」。
+
+    日期都落在真实的备份周期里：2024-05-18 是周六，和 05-19（周日）同一个周期；
+    06-01 也是周六，自己一个周期。抖音素材单独一棵枝，靠目录名里的「抖音」认。
     """
     root = Path(target).expanduser().resolve()
     if clean and root.exists():
@@ -260,6 +263,14 @@ def build(target: Path | str, *, clean: bool = False) -> Path:
                 datetime(2025, 3, 16, 8, 15, 22),
                 make="FUJIFILM", model="X-T5",
                 gps=(34.7465, 113.7275, 95.0))
+
+    # 9+10. 抖音拍摄类：目录名里写着「抖音」，整棵枝单独出来，不挂地点也不挂活动。
+    #       一条是手机竖拍（地拍），一条是无人机（航拍），顺带验证同枝里也分拍摄类型。
+    douyin = root / "2024-08-03 泡泡塘" / "抖音竖屏"
+    write_photo(douyin / "DY_0007.JPG", datetime(2024, 8, 3, 11, 20, 0),
+                make="Apple", model="iPhone 15 Pro", size=(3024, 4032))
+    write_video(douyin / "DJI_0008.MP4", datetime(2024, 8, 3, 17, 5, 0),
+                location=(34.7413, 113.7208, 60.0))
 
     print(f"示例素材库已建好：{root}")
     print(f"  照片 {_count(root, '*.JPG')} 个（真 EXIF：时间/机型/GPS）")

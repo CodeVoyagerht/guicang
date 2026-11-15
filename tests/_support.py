@@ -20,6 +20,14 @@ if str(SRC) not in sys.path:
 
 from guicang.demo import build  # noqa: E402
 
+# 示例库的规模。写死成常量而不是散在各处的魔法数字：demo 一变，
+# 只改这里，失败信息也直接说明「几条素材、几条待定」。
+DEMO_CLIPS = 10        # 8 条区域/活动 + 2 条抖音
+DEMO_SIDECARS = 2      # 两个 .SRT
+DEMO_PENDING = 3       # DJI_0002（没遥测）、IMG_1001（没地点）、DJI_0008（抖音里没把握）
+DEMO_PHOTOS = 5
+DEMO_VIDEOS = 5
+
 
 class TempDir:
     """临时目录：用完就删，测试之间不串味。"""

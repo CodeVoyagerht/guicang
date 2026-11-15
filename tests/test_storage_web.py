@@ -79,21 +79,21 @@ class SyncTests(unittest.TestCase):
 
     def test_first_sync_uploads_everything(self) -> None:
         report = storage.sync_records(self.config, self.store, self.records)
-        self.assertEqual(report.uploaded, 8)
+        self.assertEqual(report.uploaded, _support.DEMO_CLIPS)
         self.assertEqual(report.failed, 0)
         cloud = Path(self.config.sync.local_dir)
-        self.assertEqual(len([p for p in cloud.rglob("*") if p.is_file()]), 8)
+        self.assertEqual(len([p for p in cloud.rglob("*") if p.is_file()]), _support.DEMO_CLIPS)
 
     def test_second_sync_skips_unchanged(self) -> None:
         storage.sync_records(self.config, self.store, self.records)
         again = storage.sync_records(self.config, self.store, self.records)
         self.assertEqual(again.uploaded, 0)
-        self.assertEqual(again.skipped, 8)
+        self.assertEqual(again.skipped, _support.DEMO_CLIPS)
 
     def test_dry_run_uploads_nothing(self) -> None:
         report = storage.sync_records(self.config, self.store, self.records, dry_run=True)
         self.assertEqual(report.uploaded, 0)
-        self.assertEqual(report.pending, 8)
+        self.assertEqual(report.pending, _support.DEMO_CLIPS)
         self.assertFalse(Path(self.config.sync.local_dir).exists())
 
     def test_missing_config_reports_instead_of_crashing(self) -> None:
@@ -153,15 +153,22 @@ class WebTests(unittest.TestCase):
     def test_assets_endpoint_shape(self) -> None:
         status, payload = self._get("/api/assets?limit=5")
         self.assertEqual(status, 200)
-        self.assertEqual(payload["total"], 8)
+        self.assertEqual(payload["total"], _support.DEMO_CLIPS)
         self.assertEqual(len(payload["items"]), 5)
         self.assertIn("rel_path", payload["items"][0])
 
     def test_filters_work_over_http(self) -> None:
         status, payload = self._get("/api/assets?shot=" + urllib.parse.quote("航拍"))
         self.assertEqual(status, 200)
-        # 三条都是无人机拍的：两条自动落位、一条待定（DJI_0002 读不到机型）
-        self.assertEqual(payload["total"], 3)
+        # 四条都是无人机拍的：两条区域枝、一条活动枝、一条抖音枝（拍摄类型没把握）
+        self.assertEqual(payload["total"], 4)
+
+    def test_douyin_branch_is_its_own_tree(self) -> None:
+        status, payload = self._get("/api/assets?branch=douyin")
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["total"], 2)
+        for item in payload["items"]:
+            self.assertTrue(item["target_rel"].startswith("抖音/"))
 
     def test_asset_detail_carries_evidence(self) -> None:
         status, payload = self._get("/api/asset?id=1")
