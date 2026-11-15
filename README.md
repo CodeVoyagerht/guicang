@@ -41,7 +41,6 @@ guicang report --root D:\试跑      # 分布 + 待定原因
 guicang plan --root D:\试跑        # 预演：多少条、多少字节、几个重名
 guicang apply --root D:\试跑 --yes # 真落位（硬链接）
 guicang serve --root D:\试跑 --open                       # 浏览器里翻库、勾选、存选集
-guicang backup --root D:\试跑 --dry-run                    # 看看备份盘会收多少
 guicang export --root D:\试跑 --collection 精选 --format csv,txt   # 台账 + 剪辑清单
 ```
 
@@ -82,8 +81,7 @@ guicang export --root D:\试跑 --collection 精选 --format csv,txt   # 台账 
 | `guicang apply --yes [--mode]` | 真落位（默认 hardlink） | **是** |
 | `guicang undo --yes` | 撤回落位（只删链接） | **是** |
 | `guicang serve` | 本机网页云（筛选/预览/选集/导出） | 否 |
-| `guicang sync [--dry-run]` | 增量同步到本机目录或 S3 兼容存储 | 只读本地 |
-| `guicang backup [--to] [--mode] --yes` | 分类树原样镜像到备份盘（同盘硬链接） | **是**（写备份盘） |
+| `guicang sync [--dry-run]` | 增量同步到本机目录或 S3 兼容存储（网盘挂载目录也行） | 只读本地 |
 | `guicang export [--collection]` | CSV / JSON / 路径清单 | 写输出目录 |
 
 ## 网页云
@@ -104,19 +102,15 @@ guicang serve --host 0.0.0.0 --token 口令  # 手机同一 WiFi 也能翻
 `[sync] backend = "local" | "s3"`，全量增量同步（大小 + mtime 判据，状态存索引的 kv 表）。
 S3 走内置 SigV4 签名，零第三方依赖，阿里云 OSS / 腾讯云 COS / MinIO / R2 都能用。
 
-## 备份盘
+## 备份
 
-备份要的是**跟主库一模一样的结构**（编辑插上硬盘按区域/周期找，跟主库看到的一样），
-所以不是 `sync`，是 `backup`：
+**备份就是传网盘**——`_归藏\` 这棵树本身就是按「年份 → 周期 → 拍摄类型」分好的目录，
+整包上传到网盘，别人点进去看到的结构跟主库一模一样。工具里不另做一套备份机制，
+分类规则只有一套。
 
-```bash
-guicang apply                       # ① 主库的树先建好
-guicang backup --dry-run            # ② 看会搬多少
-guicang backup --yes                # ③ 镜像过去（同盘硬链接，跨盘自动复制）
-```
-
-已经存在的按「在不在 + 大小一样」跳过，中途拔盘直接重跑就是断点续传。`[backup] dir` 配一次就行，
-临时换盘用 `--to`。
+- 网盘能挂成本地盘：直接拖 `_归藏\` 进去，或把 `[sync.local] dir` 指到网盘同步目录跑 `guicang sync`。
+- 支持 S3 协议的网盘/对象存储：配 `[sync.s3]` 再 `guicang sync`。
+- 想按批次核对传没传全：`guicang report --csv` 导一份台账，拿文件名对账。
 
 ## 目录
 
@@ -135,7 +129,7 @@ src/guicang/
   demo.py        合成素材库（自写 EXIF/MP4/SRT，不依赖外部素材）
 skills/guicang/  技能：SKILL.md + references（分类法 / 证据 / 云端）+ install.py
 preset/          DSH agent 预设（能力面照抄 standard，只换 persona）
-tests/           92 条 unittest，零依赖
+tests/           114 条 unittest，零依赖
 ```
 
 ## 设计取舍

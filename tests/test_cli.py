@@ -96,20 +96,6 @@ class CliTests(unittest.TestCase):
         self.assertIn("抖音", out)
         self.assertIn("人工", out)
 
-    def test_backup_mirrors_the_tree(self) -> None:
-        self.run_cli("scan")
-        self.run_cli("apply", "--yes")
-        target = self.base / "备份盘"
-        code, out = self.run_cli("backup", "--to", str(target), "--yes")
-        self.assertEqual(code, 0)
-        mirrored = [p for p in target.rglob("*") if p.is_file()]
-        source = [p for p in (self.root / "_归藏").rglob("*") if p.is_file()]
-        self.assertEqual(len(mirrored), len(source))
-        self.assertTrue(any(p.suffix == ".MP4" for p in mirrored))
-        # 再跑一次：全都已存在，不该重复搬
-        code, out = self.run_cli("backup", "--to", str(target), "--yes")
-        self.assertIn("跳过", out)
-
     def test_explain_shows_evidence(self) -> None:
         self.run_cli("scan")
         code, out = self.run_cli("explain", "2024-07-10 开封古城/第39届菊花文化节/DJI_0003.MP4")

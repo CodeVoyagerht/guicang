@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 Python 3.11+。核心零第三方依赖；缩略图与网页预览可选 Pillow（`pip install guicang[exif]`），视频预览可选 ffmpeg；云同步支持本机目录或任意 S3 兼容对象存储（内置 SigV4 签名，无需 boto3）。
 metadata:
   author: CodeVoyagerht
-  version: "0.3.0"
+  version: "0.3.1"
   repo: https://github.com/CodeVoyagerht/guicang
 ---
 
@@ -155,26 +155,24 @@ guicang sync --shot 航拍      # 只同步一部分
 同步是**增量**的（按大小+修改时间），原件按 `<prefix><相对路径>` 上传，不会动本地。
 密钥只存在本机 `.guicang\guicang.toml`；这个文件**不要提交进 git**。
 
-## 工作流 C2：备份盘（同结构镜像，不是另一套分法）
+## 工作流 C2：备份就传网盘（工具不另搞一套）
 
-备份盘要的是**跟主库一模一样的树**——编辑插上硬盘按区域/周期找素材，跟主库看到的一样。
-所以别用 `sync` 重排，用 `backup`：
+天天自己的规矩：**备份走网盘，工具里不另做备份机制**——分类规则只有一套，别多出一个「备份结构」。
 
-```toml
-# .guicang\guicang.toml
-[backup]
-dir = "E:\\归藏备份"
-```
+`_归藏\` 这棵树本身就是可以整包上传的东西：区域/周期/拍摄类型都已经是目录，
+网盘上传文件夹之后，别人按「年份 → 周期 → 拍摄类型」一路点下去就能找到，跟主库看到的一模一样。
 
 ```bash
-guicang apply                         # ① 先在主库把树建好
-guicang backup --dry-run              # ② 看会搬多少
-guicang backup --yes                  # ③ 镜像过去（同盘硬链接，跨盘自动复制）
-guicang backup --to F:\\副本 --mode copy
+guicang apply                  # ① 先把主库的树建好
+guicang doctor                 # ② 确认索引与树一致
+guicang report --csv           # ③ 顺手导一份台账，跟网盘里的文件对账
 ```
 
-已经搬过去的按「文件在不在 + 大小一样」跳过，**断点续传式重跑**，不用担心中途拔盘。
-备份目录不允许放在分类树里（会自我吞掉），发现就拒绝执行。
+- 网盘客户端能挂载成本地盘（很多都行）：直接把 `_归藏\` 拖进那个目录，或把 `[sync.local] dir`
+  指到网盘同步目录、跑 `guicang sync` 让它增量往上送。
+- 支持 S3 协议的网盘/对象存储（OSS、COS、R2、MinIO）用 `[sync.s3]` + `guicang sync`，效果一样。
+- 不要去改网盘里的目录结构——**改结构只会让索引对不上**；要改分类就改 `places.toml` / `activities.toml`
+  然后 `scan --force`、`plan`、`apply`，再整体重传这一次变动的部分。
 
 ## 工作流 D：判定不对怎么办
 
@@ -243,7 +241,6 @@ guicang scan --force                                      # 改了 places/activi
 | `guicang undo [--run ID] --yes` | 撤回落位 | **是**（只删树里的链接） |
 | `guicang serve [--host --port --token --open]` | 本机网页云 | 否 |
 | `guicang sync [--dry-run]` | 增量上云 | 只读本地 |
-| `guicang backup [--to] [--mode] [--dry-run] --yes` | 分类树原样镜像到备份盘 | **是**（写备份盘） |
 | `guicang export [--collection] [--format]` | 台账/选集 | 写输出目录 |
 
 ## 常见坑
@@ -264,8 +261,9 @@ guicang scan --force                                      # 改了 places/activi
   跨年的周期整段放在起始年下面。看不懂就去掉：`[time] depth = "day"`。
 - **抖音素材拍摄类型没把握时留在抖音枝里**，最后一层叫「待定」，不会被丢进根上的 `待定\`。
   看到 `抖音\2024\2024-08-03_08-09\待定\` 就是这种情况，去 `review` 钉一下拍摄类型。
-- **备份用 `backup` 不要用 `sync`。** `sync` 是上对象存储的增量备份（按 `<prefix><相对路径>` 存），
-  备份盘要的是**同结构镜像**，那是 `backup` 的活。
+- **备份就是传网盘。** 工具里没有 `backup` 子命令，也不需要：`_归藏\` 这棵树本身就是
+  按年份/周期/拍摄类型分好的目录，整包传网盘就行。别在网盘里手改结构——改分类走
+  `places.toml` / `activities.toml` + `scan --force` + `plan` + `apply`。
 
 ## 参考
 

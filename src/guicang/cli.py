@@ -21,7 +21,7 @@ from .classify import SHOT_TYPES
 from .config import CONFIG_DIR, TIME_DEPTHS, ConfigError, load_config, write_templates
 from .export import export_collection, write_csv, write_json, write_pathlist
 from .manual import clear_manual, load_manual, manual_path, set_manual
-from .materialize import BACKUP_MODES, MODES, apply_plan, build_plan, mirror_tree, undo_run
+from .materialize import MODES, apply_plan, build_plan, undo_run
 from .paths import human_size, rel_posix
 from .report import text_report, write_pending_csv
 from .scanner import scan
@@ -406,35 +406,6 @@ def cmd_sync(args) -> int:
     return 0 if not report.failed else 1
 
 
-def cmd_backup(args) -> int:
-    """把分类树原样镜像到备份盘。主库怎么分，备份盘就怎么分。"""
-    config = _config(args)
-    target = Path(args.to).expanduser() if args.to else config.backup_root
-    if target is None:
-        print("还没配备份盘。两种办法：")
-        print("  ① 在 .guicang/guicang.toml 里加：")
-        print("       [backup]")
-        print("       dir = \"E:\\\\归藏备份\"")
-        print("  ② 或者这次直接给路径：guicang backup --to E:\\归藏备份")
-        return 1
-    target = target.resolve()
-    with Store(config.index_path) as store:
-        if not args.yes and not args.dry_run:
-            if not _confirm(f"把 {config.tree_root} 镜像到 {target}？", args.yes):
-                print("已取消。")
-                return 1
-        report = mirror_tree(config, store, target, mode=args.mode, dry_run=args.dry_run)
-    if args.dry_run:
-        print(f"演练：会镜像到 {target}（模式 {args.mode}），先不写盘。")
-        print(report.summary())
-    else:
-        print(report.summary())
-        print(f"备份盘：{target}")
-        for line in report.errors[:10]:
-            print(f"  {line}")
-    return 0 if not report.errors else 1
-
-
 def _resolve_collection(store: Store, wanted: str) -> tuple[int, str] | None:
     """选集可以按 id 也可以按名字给：人记名字，脚本记 id，两种都得能用。"""
     if wanted.isdigit():
@@ -631,14 +602,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--year")
     p.add_argument("--limit", type=int, default=100000)
     p.set_defaults(func=cmd_sync)
-
-    p = add("backup", "把分类树原样镜像到备份盘")
-    p.add_argument("--to", default="", help="备份根目录（默认用 [backup] dir）")
-    p.add_argument("--mode", choices=BACKUP_MODES, default="hardlink",
-                   help="hardlink=同盘零占用（默认），copy=真复制")
-    p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--yes", action="store_true")
-    p.set_defaults(func=cmd_backup)
 
     p = add("export", "导出台账 / 选集清单")
     p.add_argument("--collection", default="", help="选集 id 或名字")

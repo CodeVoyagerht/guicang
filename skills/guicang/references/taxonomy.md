@@ -127,9 +127,6 @@ bucket = ""
 access_key = ""
 secret_key = ""
 prefix = "guicang/"
-
-[backup]
-dir = ""                 # 备份盘镜像根；guicang backup 会把 _归藏\ 原样搬到这里
 ```
 
 配置文件写坏（少引号、拼错）时 `load_config` 会**直接报错并指到行号**，不会静默退回默认值：
@@ -206,7 +203,7 @@ editions = []             # 可选：预留，暂不参与判定
 | 机型层 | `guicang.toml` `[layout] camera` | 直接 `plan` |
 | 单条素材的判定 | `guicang review --set ... [--area ...] [--branch ...]` | 自动重算那一条 |
 | 树放哪 | `[library] tree` | 直接 `plan` |
-| 备份盘在哪 | `guicang.toml` `[backup] dir` | `backup` |
+| 备份到网盘 | 工具不管，`_归藏\` 整包传上去 | — |
 
 `manual.json` 是人工判定的真相，格式：
 
