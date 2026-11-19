@@ -96,6 +96,10 @@ def set_manual(root: Path | str, rel: str, **fields) -> dict[str, dict]:
         if value is None:
             continue
         value = str(value).strip()
+        if key == BRANCH_KEY and value:
+            # 中文「抖音」和内部键 douyin 都收，但落到文件里只有一个写法，
+            # 免得同一份清单里混着两种值（CLI 与网页都往这里写）
+            value = normalize_branch(value) or value
         if value:
             entry[key] = value
         else:

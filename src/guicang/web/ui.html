@@ -15,6 +15,7 @@
   <div class="stats" id="stats"></div>
   <div class="actions">
     <button class="ghost" id="btn-refresh" title="重新读索引">刷新</button>
+    <button class="ghost" id="btn-rescan" title="重新扫一遍素材目录（增量）">重新扫描</button>
     <button class="ghost" id="btn-export" title="按当前筛选导出台账">导出台账</button>
   </div>
 </header>
@@ -76,6 +77,7 @@
   <span id="sel-count">已选 0</span>
   <input id="sel-name" placeholder="选集名字，例如：开封菊花节-预告片">
   <button class="primary" id="btn-save">存为选集</button>
+  <button class="ghost" id="btn-review">批量改判定</button>
   <button class="ghost" id="btn-export-sel">导出 CSV / 清单</button>
   <button class="ghost" id="btn-clear">取消勾选</button>
 </footer>
@@ -85,6 +87,7 @@
     <button class="close" id="modal-close">×</button>
     <div class="modal-media" id="modal-media"></div>
     <div class="modal-meta" id="modal-meta"></div>
+    <div class="modal-review" id="modal-review"></div>
   </div>
 </div>
 

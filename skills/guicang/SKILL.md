@@ -1,11 +1,11 @@
 ---
 name: guicang
-description: 把摄影/航拍素材按「区域 or 活动 → 时间 → 拍摄类型」归好位，并在本机网页里翻库、筛选、挑选集、导出台账，还能同步到对象存储。Use when 用户要整理素材库、给一堆照片视频分类归档、按地点或活动找素材、问「去年开封的航拍在哪」、要挑一批素材交给剪辑、要建素材台账/选集清单、或要把素材备份上云；do not use for 单张修图调色、剪辑成片、或需要肉眼审美判断的选片。
+description: 把摄影/航拍素材按「区域 or 活动 or 抖音 → 年 → 备份周期 → 拍摄类型」归好位，并在本机网页里翻库、筛选、挑选集、**改判定**、导出台账，还能同步到对象存储。Use when 用户要整理素材库、给一堆照片视频分类归档、按地点或活动找素材、问「去年开封的航拍在哪」、要纠正某条素材的分类、要挑一批素材交给剪辑、要建素材台账/选集清单、或要把素材备份上云；do not use for 单张修图调色、剪辑成片、或需要肉眼审美判断的选片。
 license: MIT
 compatibility: 需要 Python 3.11+。核心零第三方依赖；缩略图与网页预览可选 Pillow（`pip install guicang[exif]`），视频预览可选 ffmpeg；云同步支持本机目录或任意 S3 兼容对象存储（内置 SigV4 签名，无需 boto3）。
 metadata:
   author: CodeVoyagerht
-  version: "0.3.5"
+  version: "0.4.0"
   repo: https://github.com/CodeVoyagerht/guicang
 ---
 
@@ -112,7 +112,18 @@ guicang serve --host 0.0.0.0 --token 我的口令   # 手机连同一个 WiFi �
 ```
 
 网页里能干的事：按拍摄类型/城市/地点/园区区域/活动/时间/状态筛选、看缩略图与视频、勾选、存成**选集**、
-导出台账。选集存在索引里，导出三件套：
+导出台账，以及**直接在详情弹窗里改判定**——拍摄类型 / 分支 / 地点 / 园区区域 / 活动 / 届次六个控件，
+勾多条还能一起改。改判定写的是 `.guicang\manual.json`，素材不动，保存后自动重扫并更新落位；
+顶栏的「重新扫描」等于 `scan`，增量、不重读没变的文件。
+
+命令行那套仍然等价（脚本化、批量时更快）：
+
+```bash
+guicang review --set "<路径>" --shot 航拍 --region 开封古城
+guicang review --clear "<路径>"
+```
+
+选集存在索引里，导出三件套：
 
 ```bash
 guicang export --collection "开封航拍精选" --format csv,txt

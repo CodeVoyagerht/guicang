@@ -5,7 +5,8 @@
 视频拖动靠 Range，缩略图靠 Pillow（没装就退回原图）。
 
 安全上只有三条，但都硬：只发索引里登记过的文件（不能凭路径读任意文件）、
-绑定 0.0.0.0 时必须带 token、不接受任何写盘请求（除了导出与选集）。
+绑定 0.0.0.0 时必须带 token，以及**永不碰素材本身**——能写的只有 `.guicang/manual.json`
+（网页里改判定）、索引库、选集和导出目录。
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import manual, scanner
 from .config import Config
 from .export import export_collection, export_filters, write_csv
 from .paths import human_size
@@ -117,6 +119,20 @@ def _evidence_list(raw: str | None) -> list:
     except (TypeError, ValueError):
         return []
     return value if isinstance(value, list) else []
+
+
+def _scan_counts(report) -> dict:
+    """只挑网页要显示的计数——summary 是给人读的一长句。"""
+    return {
+        "seen": report.seen,
+        "added": report.added,
+        "updated": report.updated,
+        "unchanged": report.unchanged,
+        "removed": report.removed,
+        "sidecars": report.sidecars,
+        "needs_review": report.needs_review,
+        "errors": len(report.errors),
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -236,6 +252,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._create_collection(payload)
             if path.startswith("/api/collections/") and path.endswith("/items"):
                 return self._add_items(path, payload, remove=False)
+            if path == "/api/review":
+                return self._api_review(payload)
+            if path == "/api/rescan":
+                return self._api_rescan(payload)
             return self._error(404, "没有这个地址")
         except Exception as error:
             return self._error(500, f"{type(error).__name__}: {error}")
@@ -355,6 +375,78 @@ class Handler(BaseHTTPRequestHandler):
             "branch": _evidence_list(record.branch_evidence),
         }
         self._send_json(payload)
+
+    # ── 改判定 ──────────────────────────────────────────────────────────────
+    REVIEW_FIELDS = ("shot_type", "region", "area", "activity", "edition", "branch")
+
+    def _api_review(self, payload: dict) -> None:
+        """在网页里钉住一条（或一批）的判定。
+
+        写的是 `.guicang/manual.json`，不是素材本身；写完立刻重扫一遍，
+        把 target_rel / status 一起更新——不然界面会显示旧的落位。
+        """
+        raw = payload.get("paths")
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, list) or not raw:
+            return self._error(400, "要给 paths：一个或多个相对路径")
+        paths: list[str] = []
+        for item in raw:
+            rel = str(item).replace("\\", "/").strip()
+            if rel:
+                paths.append(rel)
+        if not paths:
+            return self._error(400, "paths 里没有有效路径")
+
+        fields = {
+            key: str(payload[key]).strip()
+            for key in self.REVIEW_FIELDS
+            if payload.get(key) not in (None, "")
+        }
+        action = str(payload.get("action") or "").strip().lower()
+        if action not in ("set", "clear"):
+            action = "clear" if not fields else "set"
+        if action == "set" and not fields:
+            return self._error(
+                400,
+                "要改哪一项？可给 shot_type / region / area / activity / edition / branch",
+            )
+
+        with self._store() as store:
+            known = {record.rel_path for record in store.all()}
+        unknown = [rel for rel in paths if rel not in known]
+        if unknown:
+            return self._error(400, f"索引里没有这些路径（先 scan）：{'、'.join(unknown[:3])}")
+
+        for rel in paths:
+            if action == "clear":
+                manual.clear_manual(self.config.root, rel)
+            else:
+                manual.set_manual(self.config.root, rel, **fields)
+
+        with self._store() as store:
+            report = scanner.scan(self.config.root, self.config, store)
+            last_scan = store.get_kv("last_scan", "")
+        self._send_json({
+            "reviewed": len(paths),
+            "action": action,
+            "fields": sorted(fields),
+            "scan": _scan_counts(report),
+            "summary": report.summary(),
+            "last_scan": last_scan,
+        })
+
+    def _api_rescan(self, payload: dict) -> None:
+        force = bool(payload.get("force"))
+        with self._store() as store:
+            report = scanner.scan(self.config.root, self.config, store, force=force)
+            last_scan = store.get_kv("last_scan", "")
+        self._send_json({
+            "force": force,
+            "scan": _scan_counts(report),
+            "summary": report.summary(),
+            "last_scan": last_scan,
+        })
 
     def _thumb(self, query: dict) -> None:
         record = self._lookup(query)

@@ -270,4 +270,6 @@ def scan(root: Path | str, config: Config, store: Store, *, force: bool = False,
 
     report.removed = store.delete_missing(existing)
     report.layout = layout
+    # 网页上的「最后一次扫描」读的就是这个键；在这里写，CLI 与网页才不会各写一份
+    store.set_kv("last_scan", datetime.now().isoformat(timespec="seconds"))
     return report

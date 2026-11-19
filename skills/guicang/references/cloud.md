@@ -39,10 +39,12 @@ guicang serve --host 0.0.0.0 --token 口令    # 手机/平板在同一 WiFi 下
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/` | 单页应用 |
-| GET | `/api/status` | 库统计（总数、待定数、总字节、根目录） |
+| GET | `/api/status` | 库统计（总数、待定数、总字节、根目录）、地点与活动清单、`last_scan` |
 | GET | `/api/facets` | 五个维度的分面计数 |
 | GET | `/api/assets?limit&offset&shot&region&activity&month&status&q&collection` | 列表 |
-| GET | `/api/asset?id=` | 单条 + 证据（`evidence.shot/region/activity`） |
+| GET | `/api/asset?id=` | 单条 + 证据（`evidence.shot/region/activity/branch`） |
+| POST | `/api/review` | 改判定：`{"paths":[...], "shot_type"/"region"/"area"/"activity"/"edition"/"branch", "action":"set"\|"clear"}`，写 `manual.json` 并立刻增量重扫 |
+| POST | `/api/rescan` | 重新扫描：`{"force":false}`，返回本次计数并写下 `last_scan` |
 | GET | `/api/thumb?id=&w=` | 缩略图（JPEG） |
 | GET | `/api/media?id=` | 原图/原视频，支持 `Range` |
 | GET | `/api/collections` | 选集列表 |

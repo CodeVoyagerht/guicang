@@ -300,6 +300,8 @@ async function openDetail(item) {
   meta.innerHTML = `<h2>${escapeHtml(item.name)}</h2><dl>${
     rows.map(([key, value]) => `<dt>${key}</dt><dd>${escapeHtml(String(value))}</dd>`).join("")
   }</dl><div class="evidence" id="evidence">正在取证据…</div>`;
+  renderReviewForm([item.rel_path]);
+  $("modal").classList.remove("review-only");
   modal.hidden = false;
 
   try {
@@ -325,6 +327,117 @@ async function openDetail(item) {
 function closeDetail() {
   $("modal").hidden = true;
   $("modal-media").innerHTML = "";
+  $("modal-review").innerHTML = "";
+  reviewPaths = [];
+}
+
+// ── 改判定 ────────────────────────────────────────────────────────────────
+
+const SHOTS = ["航拍", "地拍", "延时", "FPV", "其他"];
+const BRANCHES = [["region", "区域"], ["activity", "活动"], ["douyin", "抖音"]];
+let reviewPaths = [];
+
+function selectOptions(items) {
+  const blank = `<option value="">不改</option>`;
+  return blank + items.map(([value, label]) =>
+    `<option value="${escapeHtml(String(value))}">${escapeHtml(String(label))}</option>`).join("");
+}
+
+function renderReviewForm(paths) {
+  reviewPaths = paths.slice();
+  const box = $("modal-review");
+  if (!box) return;
+  if (!paths.length) { box.innerHTML = ""; return; }
+  const status = state.status || {};
+  const places = (status.places || []).map((name) => [name, name]);
+  const activities = (status.activities || []).map((name) => [name, name]);
+  box.innerHTML = `
+    <h3>改判定 <span class="muted">只写 manual.json，素材一根手指都不碰</span></h3>
+    <div class="review-grid">
+      <label>拍摄类型<select id="rv-shot">${selectOptions(SHOTS.map((s) => [s, s]))}</select></label>
+      <label>分支<select id="rv-branch">${selectOptions(BRANCHES)}</select></label>
+      <label>地点<select id="rv-region">${selectOptions(places)}</select></label>
+      <label>园区区域<input id="rv-area" placeholder="例如：水世界"></label>
+      <label>活动<select id="rv-activity">${selectOptions(activities)}</select></label>
+      <label>届次<input id="rv-edition" placeholder="例如：第39届"></label>
+    </div>
+    <div class="review-actions">
+      <button class="primary" id="rv-save">保存判定</button>
+      <button class="ghost" id="rv-clear">清除人工判定</button>
+      <span class="muted">这批 ${paths.length} 条</span>
+    </div>`;
+  $("rv-save").addEventListener("click", () => submitReview("set"));
+  $("rv-clear").addEventListener("click", () => submitReview("clear"));
+}
+
+async function submitReview(action) {
+  if (!reviewPaths.length) return;
+  const payload = { paths: reviewPaths, action };
+  if (action === "set") {
+    const fields = {
+      shot_type: $("rv-shot").value,
+      branch: $("rv-branch").value,
+      region: $("rv-region").value,
+      area: $("rv-area").value.trim(),
+      activity: $("rv-activity").value,
+      edition: $("rv-edition").value.trim(),
+    };
+    let touched = 0;
+    Object.entries(fields).forEach(([key, value]) => {
+      if (value) { payload[key] = value; touched += 1; }
+    });
+    if (!touched) return toast("至少选一项要改的");
+  }
+  try {
+    const result = await api("/api/review", {}, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    toast(`已改 ${result.reviewed} 条判定。${result.summary}`, 7000);
+    closeDetail();
+    await loadStatus();
+    await loadFacets();
+    await reload();
+  } catch (error) {
+    toast(`改判定失败：${error.message}`, 5000);
+  }
+}
+
+async function rescan() {
+  try {
+    toast("正在扫描，大库可能要一会儿…", 8000);
+    const result = await api("/api/rescan", {}, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    toast(result.summary, 8000);
+    await loadStatus();
+    await loadFacets();
+    await reload();
+  } catch (error) {
+    toast(`扫描失败：${error.message}`, 5000);
+  }
+}
+
+function openBulkReview() {
+  if (!state.selected.size) return toast("先勾选素材");
+  const paths = state.items
+    .filter((item) => state.selected.has(item.id))
+    .map((item) => item.rel_path);
+  const stray = [...state.selected].filter((id) => !state.items.some((item) => item.id === id));
+  if (!paths.length) return toast("勾选的素材不在当前页，翻回去再勾一次");
+  if (stray.length) toast(`有 ${stray.length} 条不在当前页，只改这 ${paths.length} 条`, 5000);
+  openReviewModal(paths, `批量改判定 · ${paths.length} 条`);
+}
+
+function openReviewModal(paths, title) {
+  $("modal-media").innerHTML = "";
+  $("modal-meta").innerHTML = `<h2>${escapeHtml(title)}</h2>`;
+  renderReviewForm(paths);
+  $("modal").classList.add("review-only");
+  $("modal").hidden = false;
 }
 
 // ── 动作 ──────────────────────────────────────────────────────────────────
@@ -386,6 +499,8 @@ function bind() {
     catch (error) { toast(`刷新失败：${error.message}`); }
   };
   $("btn-export").onclick = exportLedger;
+  $("btn-rescan").onclick = rescan;
+  $("btn-review").onclick = openBulkReview;
   $("btn-export-sel").onclick = exportSelection;
   $("btn-save").onclick = saveCollection;
   $("btn-clear").onclick = () => {

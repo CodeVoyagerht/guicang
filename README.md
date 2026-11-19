@@ -82,14 +82,15 @@ guicang export --root D:\试跑 --collection 精选 --format csv,txt   # 台账 
 | `guicang plan [--mode] [--json]` | 预演落位 | 否 |
 | `guicang apply --yes [--mode]` | 真落位（默认 hardlink） | **是** |
 | `guicang undo --yes` | 撤回落位（只删链接） | **是** |
-| `guicang serve` | 本机网页云（筛选/预览/选集/导出） | 否 |
+| `guicang serve` | 本机网页云（筛选/预览/选集/导出/改判定） | 否 |
 | `guicang sync [--dry-run]` | 增量同步到本机目录或 S3 兼容存储（网盘挂载目录也行） | 只读本地 |
 | `guicang export [--collection]` | CSV / JSON / 路径清单 | 写输出目录 |
 
 ## 网页云
 
 `guicang serve` 起一个零构建的单页应用：缩略图墙、五维筛选、视频直接播（Range 206）、
-勾选成选集、一键导出台账。
+勾选成选集、一键导出台账，**还能在详情弹窗里直接改判定**（拍摄类型/分支/地点/园区区域/活动/届次，
+勾多条可以一起改）。改的是 `.guicang\manual.json`，素材一个字节都不动，保存后自动重扫并更新落位。
 
 ```bash
 guicang serve --open                      # 本机

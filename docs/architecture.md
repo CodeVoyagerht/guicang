@@ -91,10 +91,20 @@ kv(key, value)                                                  -- sync 状态�
 单页三件套（`web/ui.html` + `ui.css` + `ui.js`，原生 JS，零构建）。
 
 理由：这是个**本地工具**，不是产品。没有构建步骤意味着 `pip install` 完就能用、改一行刷新就见效、
-十年后还能跑。代价是代码没有类型检查——用 92 条测试兜住行为，而不是用框架兜住结构。
+十年后还能跑。代价是代码没有类型检查——用测试兜住行为，而不是用框架兜住结构。
 
 后端用 `http.server`（标准库）+ `BaseHTTPRequestHandler`，视频走 Range 206，
 缩略图懒生成并缓存到 `.guicang/thumbs`。
+
+网页有两条写路径，都刻意收得很窄：
+
+| 接口 | 写什么 | 副作用 |
+|---|---|---|
+| `POST /api/review` | `.guicang/manual.json` | 立刻增量重扫一条/一批，更新 `target_rel` 与 `status` |
+| `POST /api/rescan` | 索引库 + kv `last_scan` | 走一遍目录，未变的文件复用旧读数（不重读 EXIF） |
+
+**素材本身永远不在这两条路径上**——`manual.json` 是覆盖表，索引是缓存，都能删了重建；
+原件与落位树只有 `apply` / `undo` 会动。
 
 ## 零依赖的边界
 
